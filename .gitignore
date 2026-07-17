@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/agent.db
+data/media/
+output/
+.env
+*.log
