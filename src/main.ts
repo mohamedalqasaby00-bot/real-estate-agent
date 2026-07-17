@@ -1,4 +1,4 @@
-import { initDb, runMigrations, closeDb, saveDb } from './storage/index.js';
+import { initDb, closeDb, saveDb } from './storage/index.js';
 import { ensureMediaDir } from './media/index.js';
 import { startMCPServer } from './ai/index.js';
 import { startDashboard } from './dashboard/server.js';
@@ -8,8 +8,7 @@ async function main() {
   console.log('🤖 Real Estate Agent v1.0.0');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-  await initDb();
-  runMigrations();
+  initDb();
   ensureMediaDir();
 
   const args = process.argv.slice(2);
@@ -34,13 +33,11 @@ async function main() {
 
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
-  saveDb();
   closeDb();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  saveDb();
   closeDb();
   process.exit(0);
 });

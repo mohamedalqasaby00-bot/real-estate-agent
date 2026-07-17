@@ -1,23 +1,33 @@
 import { Router } from 'express';
-import { queryAll, runSql } from '../../storage/index.js';
+import { getSupabase } from '../../storage/index.js';
 import { config } from '../../config/index.js';
 
 export const settingsRouter = Router();
 
-settingsRouter.get('/', (_req, res) => {
-  const rows = queryAll<{ key: string; value: string }>('SELECT * FROM settings');
-  const settings: Record<string, string> = {};
-  rows.forEach(r => { settings[r.key] = r.value; });
-  settings._chrome_profile = config.chrome.userDataDir;
-  settings._media_dir = config.media.dir;
-  settings._db_path = config.db.path;
-  res.json(settings);
+settingsRouter.get('/', async (_req, res) => {
+  try {
+    const { data } = await getSupabase().from('settings').select('*');
+    const settings: Record<string, string> = {};
+    (data || []).forEach((r: { key: string; value: string }) => { settings[r.key] = r.value; });
+    settings._chrome_profile = config.chrome.userDataDir;
+    settings._media_dir = config.media.dir;
+    settings._supabase_url = config.supabase.url;
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
-settingsRouter.put('/', (req, res) => {
-  for (const [key, value] of Object.entries(req.body)) {
-    if (key.startsWith('_')) continue;
-    runSql('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, String(value)]);
+settingsRouter.put('/', async (req, res) => {
+  try {
+    const updates = Object.entries(req.body)
+      .filter(([key]) => !key.startsWith('_'))
+      .map(([key, value]) => ({ key, value: String(value) }));
+    if (updates.length) {
+      await getSupabase().from('settings').upsert(updates);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
-  res.json({ success: true });
 });

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { v4 as uuid } from 'uuid';
-import { queryAll, queryOne, runSql } from '../database.js';
+import { getSupabase } from '../database.js';
 
 export interface MediaEntry {
   id: string;
@@ -15,15 +15,19 @@ export interface MediaEntry {
   created_at: string;
 }
 
-export function getAllMedia(): MediaEntry[] {
-  return queryAll<MediaEntry>('SELECT * FROM media ORDER BY created_at DESC');
+export async function getAllMedia(): Promise<MediaEntry[]> {
+  const { data, error } = await getSupabase().from('media').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
-export function getMedia(id: string): MediaEntry | undefined {
-  return queryOne<MediaEntry>('SELECT * FROM media WHERE id = ?', [id]);
+export async function getMedia(id: string): Promise<MediaEntry | undefined> {
+  const { data, error } = await getSupabase().from('media').select('*').eq('id', id).single();
+  if (error) return undefined;
+  return data;
 }
 
-export function addMedia(
+export async function addMedia(
   originalName: string,
   fileName: string,
   filePath: string,
@@ -31,23 +35,32 @@ export function addMedia(
   fileSize: number,
   width?: number | null,
   height?: number | null
-): MediaEntry {
+): Promise<MediaEntry> {
   const id = uuid();
-  runSql(
-    'INSERT INTO media (id, original_name, file_name, file_path, mime_type, file_size, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, originalName, fileName, filePath, mimeType, fileSize, width ?? null, height ?? null]
-  );
-  return getMedia(id)!;
+  const { error } = await getSupabase().from('media').insert({
+    id,
+    original_name: originalName,
+    file_name: fileName,
+    file_path: filePath,
+    mime_type: mimeType,
+    file_size: fileSize,
+    width: width ?? null,
+    height: height ?? null,
+  });
+  if (error) throw error;
+  return getMedia(id) as Promise<MediaEntry>;
 }
 
-export function markMediaCompressed(id: string): void {
-  runSql('UPDATE media SET compressed = 1 WHERE id = ?', [id]);
+export async function markMediaCompressed(id: string): Promise<void> {
+  const { error } = await getSupabase().from('media').update({ compressed: 1 }).eq('id', id);
+  if (error) throw error;
 }
 
-export function deleteMedia(id: string): void {
-  const m = getMedia(id);
+export async function deleteMedia(id: string): Promise<void> {
+  const m = await getMedia(id);
   if (m) {
     try { fs.unlinkSync(m.file_path); } catch { /* ignore */ }
-    runSql('DELETE FROM media WHERE id = ?', [id]);
+    const { error } = await getSupabase().from('media').delete().eq('id', id);
+    if (error) throw error;
   }
 }

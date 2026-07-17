@@ -1,5 +1,5 @@
 import { postToGroups } from '../../facebook/index.js';
-import { createTask, getAllGroups, addHistory } from '../../storage/index.js';
+import { createTask, getAllGroups } from '../../storage/index.js';
 import { MCPTool } from './registry.js';
 
 export const postTool: MCPTool = {
@@ -22,13 +22,13 @@ export const postTool: MCPTool = {
     const groupCategories: string[] = (args.groupCategories as string[]) || [];
 
     if (groupCategories.length) {
-      const allGroups = getAllGroups();
+      const allGroups = await getAllGroups();
       const filtered = allGroups.filter(g => groupCategories.includes(g.category));
       groupIds = [...groupIds, ...filtered.map(g => g.url)];
     }
 
     if (!groupIds.length) {
-      const allGroups = getAllGroups();
+      const allGroups = await getAllGroups();
       groupIds = allGroups.map(g => g.url);
     }
 
@@ -36,7 +36,7 @@ export const postTool: MCPTool = {
       return { content: [{ type: 'text', text: 'لا توجد مجموعات. أضف مجموعات أولاً.' }] };
     }
 
-    const task = createTask('post', groupIds, text, mediaFiles);
+    const task = await createTask('post', groupIds, text, mediaFiles);
     const results = await postToGroups(groupIds, text, mediaFiles, task.id);
 
     const successCount = results.filter(r => r.success).length;

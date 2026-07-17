@@ -22,7 +22,7 @@ export async function importMedia(sourcePath: string): Promise<{ id: string; fil
   fs.copyFileSync(sourcePath, destPath);
 
   const stat = fs.statSync(destPath);
-  const entry = addMedia(
+  const entry = await addMedia(
     path.basename(sourcePath),
     fileName,
     destPath,

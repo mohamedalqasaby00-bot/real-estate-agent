@@ -55,6 +55,8 @@ out
 data/agent.db
 data/media/
 output/
+backup/
+*.db
 
 # Firebase
 .firebase/

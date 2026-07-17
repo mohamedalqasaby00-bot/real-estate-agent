@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { queryAll, queryOne, runSql } from '../database.js';
+import { getSupabase } from '../database.js';
 
 export interface Group {
   id: string;
@@ -10,35 +10,46 @@ export interface Group {
   updated_at: string;
 }
 
-export function getAllGroups(): Group[] {
-  return queryAll<Group>('SELECT * FROM groups ORDER BY name');
+export async function getAllGroups(): Promise<Group[]> {
+  const { data, error } = await getSupabase().from('groups').select('*').order('name');
+  if (error) throw error;
+  return data || [];
 }
 
-export function getGroup(id: string): Group | undefined {
-  return queryOne<Group>('SELECT * FROM groups WHERE id = ?', [id]);
+export async function getGroup(id: string): Promise<Group | undefined> {
+  const { data, error } = await getSupabase().from('groups').select('*').eq('id', id).single();
+  if (error) return undefined;
+  return data;
 }
 
-export function addGroup(name: string, url: string, category = ''): Group {
+export async function addGroup(name: string, url: string, category = ''): Promise<Group> {
   const id = uuid();
-  runSql('INSERT INTO groups (id, name, url, category) VALUES (?, ?, ?, ?)', [id, name, url, category]);
-  return getGroup(id)!;
+  const { error } = await getSupabase().from('groups').insert({ id, name, url, category });
+  if (error) throw error;
+  return getGroup(id) as Promise<Group>;
 }
 
-export function deleteGroup(id: string): void {
-  runSql('DELETE FROM groups WHERE id = ?', [id]);
+export async function deleteGroup(id: string): Promise<void> {
+  const { error } = await getSupabase().from('groups').delete().eq('id', id);
+  if (error) throw error;
 }
 
-export function updateGroup(id: string, data: Partial<Group>): void {
-  const keys = Object.keys(data).filter(k => k !== 'id' && k !== 'created_at');
-  if (!keys.length) return;
-  const setClause = keys.map(k => `${k} = ?`).join(', ');
-  const values = keys.map(k => (data as Record<string, unknown>)[k]);
-  runSql(`UPDATE groups SET ${setClause}, updated_at = datetime('now') WHERE id = ?`, [...values, id]);
+export async function updateGroup(id: string, data: Partial<Group>): Promise<void> {
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (data.name !== undefined) update.name = data.name;
+  if (data.url !== undefined) update.url = data.url;
+  if (data.category !== undefined) update.category = data.category;
+  const { error } = await getSupabase().from('groups').update(update).eq('id', id);
+  if (error) throw error;
 }
 
-export function getGroupCategories(): string[] {
-  const rows = queryAll<{ category: string }>(
-    "SELECT DISTINCT category FROM groups WHERE category != '' ORDER BY category"
-  );
-  return rows.map(r => r.category);
+export async function getGroupCategories(): Promise<string[]> {
+  const { data, error } = await getSupabase()
+    .from('groups')
+    .select('category')
+    .neq('category', '')
+    .order('category');
+  if (error) throw error;
+  const cats = [...new Set((data || []).map((r: { category: string }) => r.category))];
+  return cats;
 }

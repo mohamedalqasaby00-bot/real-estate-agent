@@ -66,12 +66,12 @@ export async function postToGroup(
       }
     }
 
-    addHistory(taskId, groupUrl, groupName, 'done', text, mediaPaths.length);
+    await addHistory(taskId, groupUrl, groupName, 'done', text, mediaPaths.length);
 
     return { groupId: groupUrl, groupName, success: true };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    addHistory(taskId, groupUrl, groupUrl, 'failed', text, mediaPaths.length);
+    await addHistory(taskId, groupUrl, groupUrl, 'failed', text, mediaPaths.length);
     return { groupId: groupUrl, groupName: groupUrl, success: false, error: errorMsg };
   } finally {
     await page.close().catch(() => {});

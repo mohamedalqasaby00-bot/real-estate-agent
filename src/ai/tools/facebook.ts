@@ -1,4 +1,4 @@
-import { getAllGroups, addGroup, deleteGroup, getGroup, getAllTasks } from '../../storage/index.js';
+import { getAllGroups, addGroup, getAllTasks } from '../../storage/index.js';
 import { MCPTool } from './registry.js';
 
 export const listGroupsTool: MCPTool = {
@@ -9,7 +9,7 @@ export const listGroupsTool: MCPTool = {
     properties: {},
   },
   handler: async () => {
-    const groups = getAllGroups();
+    const groups = await getAllGroups();
     if (!groups.length) {
       return { content: [{ type: 'text', text: 'لا توجد مجموعات. استخدم add_group لإضافة مجموعة.' }] };
     }
@@ -40,12 +40,12 @@ export const addGroupTool: MCPTool = {
     const url = String(args.url || '');
     const category = String(args.category || '');
 
-    const existing = getAllGroups().find(g => g.url === url);
+    const existing = (await getAllGroups()).find(g => g.url === url);
     if (existing) {
       return { content: [{ type: 'text', text: `المجموعة "${name}" موجودة مسبقاً.` }] };
     }
 
-    addGroup(name, url, category);
+    await addGroup(name, url, category);
     return { content: [{ type: 'text', text: `✅ تم إضافة المجموعة: ${name}` }] };
   },
 };
@@ -55,7 +55,7 @@ export const listTasksTool: MCPTool = {
   description: 'عرض كل المهام المجدولة',
   inputSchema: { type: 'object', properties: {} },
   handler: async () => {
-    const tasks = getAllTasks().filter(t => t.status !== 'done');
+    const tasks = (await getAllTasks()).filter(t => t.status !== 'done');
     if (!tasks.length) {
       return { content: [{ type: 'text', text: 'لا توجد مهام حالية.' }] };
     }

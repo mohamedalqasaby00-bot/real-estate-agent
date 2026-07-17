@@ -12,9 +12,8 @@ import { startQueue } from '../scheduler/index.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function startDashboard(): Promise<void> {
-  const { initDb, runMigrations } = await import('../storage/index.js');
-  await initDb();
-  runMigrations();
+  const { initDb } = await import('../storage/index.js');
+  initDb();
 
   const app = express();
   app.use(express.json());

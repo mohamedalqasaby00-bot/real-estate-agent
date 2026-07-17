@@ -24,13 +24,13 @@ export const scheduleTool: MCPTool = {
     const scheduleStr = String(args.schedule || '');
 
     if (groupCategories.length) {
-      const allGroups = getAllGroups();
+      const allGroups = await getAllGroups();
       const filtered = allGroups.filter(g => groupCategories.includes(g.category));
       groupIds = [...groupIds, ...filtered.map(g => g.url)];
     }
 
     if (!groupIds.length) {
-      const allGroups = getAllGroups();
+      const allGroups = await getAllGroups();
       groupIds = allGroups.map(g => g.url);
     }
 
@@ -46,7 +46,7 @@ export const scheduleTool: MCPTool = {
     const nextRun = getNextRun(parsed);
     const scheduledAt = nextRun.toISOString().replace('T', ' ').slice(0, 19);
 
-    const task = createTask('post', groupIds, text, mediaFiles, scheduledAt);
+    const task = await createTask('post', groupIds, text, mediaFiles, scheduledAt);
 
     return {
       content: [{

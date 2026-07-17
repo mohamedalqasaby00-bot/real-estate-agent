@@ -12,8 +12,9 @@ export const config = {
     userDataDir: process.env.CHROME_USER_DATA_DIR || path.join(ROOT, 'chrome-data'),
     profile: process.env.CHROME_PROFILE || 'Default',
   },
-  db: {
-    path: process.env.DB_PATH || path.join(ROOT, 'data', 'agent.db'),
+  supabase: {
+    url: process.env.SUPABASE_URL || '',
+    anonKey: process.env.SUPABASE_ANON_KEY || '',
   },
   media: {
     dir: process.env.MEDIA_DIR || path.join(ROOT, 'data', 'media'),

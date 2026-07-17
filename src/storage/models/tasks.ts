@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { queryAll, queryOne, runSql } from '../database.js';
+import { getSupabase } from '../database.js';
 
 export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
 
@@ -18,55 +18,80 @@ export interface Task {
   error: string | null;
 }
 
-export function getAllTasks(): Task[] {
-  return queryAll<Task>('SELECT * FROM tasks ORDER BY created_at DESC');
+export async function getAllTasks(): Promise<Task[]> {
+  const { data, error } = await getSupabase().from('tasks').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(normalizeTask);
 }
 
-export function getPendingTasks(): Task[] {
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  return queryAll<Task>(
-    "SELECT * FROM tasks WHERE status = 'pending' AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY created_at",
-    [now]
-  );
+export async function getPendingTasks(): Promise<Task[]> {
+  const now = new Date().toISOString();
+  const { data, error } = await getSupabase()
+    .from('tasks')
+    .select('*')
+    .eq('status', 'pending')
+    .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
+    .order('created_at');
+  if (error) throw error;
+  return (data || []).map(normalizeTask);
 }
 
-export function getTask(id: string): Task | undefined {
-  return queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [id]);
+export async function getTask(id: string): Promise<Task | undefined> {
+  const { data, error } = await getSupabase().from('tasks').select('*').eq('id', id).single();
+  if (error) return undefined;
+  return normalizeTask(data);
 }
 
-export function createTask(
+export async function createTask(
   type: string,
   groupIds: string[],
   textContent: string,
   mediaPaths: string[],
   scheduledAt?: string | null,
   maxRetries = 3
-): Task {
+): Promise<Task> {
   const id = uuid();
-  runSql(
-    'INSERT INTO tasks (id, type, group_ids, text_content, media_paths, scheduled_at, max_retries) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [id, type, JSON.stringify(groupIds), textContent, JSON.stringify(mediaPaths), scheduledAt || null, maxRetries]
-  );
-  return getTask(id)!;
+  const { error } = await getSupabase().from('tasks').insert({
+    id,
+    type,
+    group_ids: groupIds,
+    text_content: textContent,
+    media_paths: mediaPaths,
+    scheduled_at: scheduledAt || null,
+    max_retries: maxRetries,
+  });
+  if (error) throw error;
+  return getTask(id) as Promise<Task>;
 }
 
-export function updateTaskStatus(id: string, status: TaskStatus, error?: string): void {
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  if (status === 'running') {
-    runSql('UPDATE tasks SET status = ?, executed_at = ? WHERE id = ?', [status, now, id]);
-  } else if (status === 'done') {
-    runSql('UPDATE tasks SET status = ?, executed_at = ? WHERE id = ?', [status, now, id]);
-  } else if (status === 'failed' && error) {
-    runSql('UPDATE tasks SET status = ?, error = ? WHERE id = ?', [status, error, id]);
-  } else {
-    runSql('UPDATE tasks SET status = ? WHERE id = ?', [status, id]);
+export async function updateTaskStatus(id: string, status: TaskStatus, error?: string): Promise<void> {
+  const update: Record<string, unknown> = { status };
+  if (status === 'running' || status === 'done') {
+    update.executed_at = new Date().toISOString();
+  }
+  if (status === 'failed' && error) {
+    update.error = error;
+  }
+  const { error: err } = await getSupabase().from('tasks').update(update).eq('id', id);
+  if (err) throw err;
+}
+
+export async function incrementTaskRetry(id: string): Promise<void> {
+  const { data } = await getSupabase().from('tasks').select('retries').eq('id', id).single();
+  if (data) {
+    await getSupabase().from('tasks').update({ retries: data.retries + 1 }).eq('id', id);
   }
 }
 
-export function incrementTaskRetry(id: string): void {
-  runSql('UPDATE tasks SET retries = retries + 1 WHERE id = ?', [id]);
+export async function deleteTask(id: string): Promise<void> {
+  const { error } = await getSupabase().from('tasks').delete().eq('id', id);
+  if (error) throw error;
 }
 
-export function deleteTask(id: string): void {
-  runSql('DELETE FROM tasks WHERE id = ?', [id]);
+function normalizeTask(row: any): Task {
+  return {
+    ...row,
+    group_ids: typeof row.group_ids === 'string' ? row.group_ids : JSON.stringify(row.group_ids || []),
+    media_paths: typeof row.media_paths === 'string' ? row.media_paths : JSON.stringify(row.media_paths || []),
+  };
 }

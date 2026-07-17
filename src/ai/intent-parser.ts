@@ -9,7 +9,7 @@ export interface ParsedIntent {
   schedule?: string;
 }
 
-export function parseIntent(input: string): ParsedIntent {
+export async function parseIntent(input: string): Promise<ParsedIntent> {
   const l = input.toLowerCase();
 
   if (l.includes('جدول') || l.includes('schedul') || l.includes('كل ') || l.includes('every ')) {
@@ -17,7 +17,7 @@ export function parseIntent(input: string): ParsedIntent {
       action: 'schedule',
       text: extractText(input),
       mediaFiles: [],
-      groupIds: extractGroups(input),
+      groupIds: await extractGroups(input),
       schedule: extractSchedule(input),
     };
   }
@@ -29,7 +29,7 @@ export function parseIntent(input: string): ParsedIntent {
         action: 'schedule',
         text: extractText(input),
         mediaFiles: [],
-        groupIds: extractGroups(input),
+        groupIds: await extractGroups(input),
         schedule,
       };
     }
@@ -37,7 +37,7 @@ export function parseIntent(input: string): ParsedIntent {
       action: 'post',
       text: extractText(input),
       mediaFiles: [],
-      groupIds: extractGroups(input),
+      groupIds: await extractGroups(input),
     };
   }
 
@@ -94,9 +94,9 @@ function extractSchedule(input: string): string | undefined {
   return `today at ${time}`;
 }
 
-function extractGroups(input: string): string[] | undefined {
+async function extractGroups(input: string): Promise<string[] | undefined> {
   const l = input.toLowerCase();
-  const allGroups = getAllGroups();
+  const allGroups = await getAllGroups();
   if (allGroups.length === 0) return undefined;
 
   const cats = [...new Set(allGroups.map(g => g.category))];

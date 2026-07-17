@@ -23,7 +23,7 @@ export function stopQueue(): void {
 async function processQueue(): Promise<void> {
   if (!running) return;
   try {
-    const tasks = getPendingTasks();
+    const tasks = await getPendingTasks();
     for (const task of tasks) {
       if (!running) break;
       await executeTask(task.id);
@@ -34,14 +34,14 @@ async function processQueue(): Promise<void> {
 }
 
 async function executeTask(taskId: string): Promise<void> {
-  const task = getTask(taskId);
+  const task = await getTask(taskId);
   if (!task || task.status !== 'pending') return;
 
-  updateTaskStatus(taskId, 'running');
+  await updateTaskStatus(taskId, 'running');
 
   try {
-    const groupIds: string[] = JSON.parse(task.group_ids);
-    const mediaPaths: string[] = JSON.parse(task.media_paths);
+    const groupIds: string[] = typeof task.group_ids === 'string' ? JSON.parse(task.group_ids) : task.group_ids;
+    const mediaPaths: string[] = typeof task.media_paths === 'string' ? JSON.parse(task.media_paths) : task.media_paths;
 
     const results = await postToGroups(groupIds, task.text_content, mediaPaths, taskId, (result, index, total) => {
       console.log(`[${index}/${total}] ${result.groupName}: ${result.success ? '✅' : '❌'}`);
@@ -49,23 +49,23 @@ async function executeTask(taskId: string): Promise<void> {
 
     const allSuccess = results.every(r => r.success);
     if (allSuccess) {
-      updateTaskStatus(taskId, 'done');
+      await updateTaskStatus(taskId, 'done');
     } else {
       const failed = results.filter(r => !r.success);
-      incrementTaskRetry(taskId);
+      await incrementTaskRetry(taskId);
       if (task.retries + 1 >= task.max_retries) {
-        updateTaskStatus(taskId, 'failed', `${failed.length} groups failed`);
+        await updateTaskStatus(taskId, 'failed', `${failed.length} groups failed`);
       } else {
-        updateTaskStatus(taskId, 'pending', `Retrying after ${failed.length} failures`);
+        await updateTaskStatus(taskId, 'pending', `Retrying after ${failed.length} failures`);
       }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    incrementTaskRetry(taskId);
+    await incrementTaskRetry(taskId);
     if (task.retries + 1 >= task.max_retries) {
-      updateTaskStatus(taskId, 'failed', msg);
+      await updateTaskStatus(taskId, 'failed', msg);
     } else {
-      updateTaskStatus(taskId, 'pending', msg);
+      await updateTaskStatus(taskId, 'pending', msg);
     }
   }
 }
