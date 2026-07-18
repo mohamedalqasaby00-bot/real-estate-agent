@@ -38,14 +38,27 @@ async function sbDelete(table, id) {
   if (!r.ok) throw new Error(await r.text());
 }
 
-async function sbUpload(fileName, file) {
-  const r = await fetch(`${STORAGE}/object/media-uploads/${fileName}`, {
-    method: 'POST',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': file.type },
-    body: file
+function sbUpload(fileName, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${STORAGE}/object/media-uploads/${fileName}`);
+    xhr.setRequestHeader('apikey', SUPABASE_KEY);
+    xhr.setRequestHeader('Authorization', `Bearer ${SUPABASE_KEY}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(`${STORAGE}/object/public/media-uploads/${fileName}`);
+      } else {
+        reject(new Error(xhr.responseText));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed'));
+    xhr.send(file);
   });
-  if (!r.ok) throw new Error(await r.text());
-  return `${STORAGE}/object/public/media-uploads/${fileName}`;
 }
 
 function showPage(name) {
@@ -247,12 +260,14 @@ async function submitPost() {
     const filesToUpload = uploadedFiles.filter(f => f !== null);
 
     for (let i = 0; i < filesToUpload.length; i++) {
-      btn.textContent = `جاري رفع الملف ${i + 1} / ${filesToUpload.length}...`;
       const file = filesToUpload[i].file;
       const ext = file.name.split('.').pop();
       const fileName = `${Date.now()}-${i}.${ext}`;
-
-      const publicUrl = await sbUpload(fileName, file);
+      btn.textContent = `جاري رفع ${file.name}... 0%`;
+      const publicUrl = await sbUpload(fileName, file, (pct) => {
+        btn.textContent = `جاري رفع ${file.name}... ${pct}%`;
+      });
+      btn.textContent = `تم رفع ${file.name} ✅`;
       mediaPaths.push(publicUrl);
     }
 
@@ -454,7 +469,7 @@ async function renderTasks(el) {
                 <td style="font-family:monospace;font-size:12px;">${t.id.slice(0, 8)}...</td>
                 <td>${t.type}</td>
                 <td><span class="badge badge-${t.status}">${t.status}</span></td>
-                <td>${JSON.parse(t.group_ids).length}</td>
+                <td>${Array.isArray(t.group_ids) ? t.group_ids.length : JSON.parse(t.group_ids).length}</td>
                 <td>${t.scheduled_at ? new Date(t.scheduled_at).toLocaleString('ar-EG') : 'فوراً'}</td>
                 <td>${t.retries}/${t.max_retries}</td>
                 <td>
