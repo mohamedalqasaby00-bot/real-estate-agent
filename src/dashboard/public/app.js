@@ -453,6 +453,12 @@ async function saveEditGroup() {
   renderGroups($('#page-content'));
 }
 
+function safeParse(val) {
+  if (Array.isArray(val)) return val;
+  if (!val) return [];
+  try { return JSON.parse(val); } catch { return []; }
+}
+
 async function renderTasks(el) {
   el.innerHTML = '<h1>المهام</h1><p style="color:#888;">جاري التحميل...</p>';
   try {
@@ -467,11 +473,11 @@ async function renderTasks(el) {
             ${tasks.map(t => `
               <tr>
                 <td style="font-family:monospace;font-size:12px;">${t.id.slice(0, 8)}...</td>
-                <td>${t.type}</td>
+                <td>${t.type || ''}</td>
                 <td><span class="badge badge-${t.status}">${t.status}</span></td>
-                <td>${Array.isArray(t.group_ids) ? t.group_ids.length : JSON.parse(t.group_ids).length}</td>
+                <td>${safeParse(t.group_ids).length}</td>
                 <td>${t.scheduled_at ? new Date(t.scheduled_at).toLocaleString('ar-EG') : 'فوراً'}</td>
-                <td>${t.retries}/${t.max_retries}</td>
+                <td>${t.retries || 0}/${t.max_retries || 3}</td>
                 <td>
                   ${t.status === 'pending' ? `<button class="btn btn-danger btn-sm" onclick="deleteTask('${t.id}')">إلغاء</button>` : ''}
                 </td>

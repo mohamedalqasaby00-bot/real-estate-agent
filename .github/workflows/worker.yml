@@ -8,7 +8,7 @@ on:
 jobs:
   worker:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
 
     env:
       CLOUD_MODE: "true"
@@ -32,4 +32,3 @@ jobs:
 
       - name: Run worker
         run: npx tsx src/worker-cloud.ts
-        timeout-minutes: 8

@@ -7,6 +7,7 @@ import path from 'path';
 import https from 'https';
 import http from 'http';
 
+const BATCH_SIZE = 5;
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || '';
 const REST = `${SUPABASE_URL}/rest/v1`;
@@ -64,7 +65,7 @@ async function supaInsert(table: string, data: any) {
     }, (res) => {
       let d = '';
       res.on('data', c => d += c);
-      res.on('end', () => resolve(JSON.parse(d)));
+      res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
     });
     req.on('error', reject);
     req.write(body);
@@ -147,9 +148,8 @@ function randomDelay(): Promise<void> {
 
 async function main() {
   console.log('🔄 GitHub Actions Worker starting...');
+  console.log(`📦 Batch size: ${BATCH_SIZE} groups per run`);
 
-  // Load cookies from Supabase
-  console.log('☁️  Loading cookies from Supabase...');
   const settings = await supaQuery('settings', 'key=eq.facebook_cookies&select=value');
   if (!settings.length || !settings[0].value) {
     console.error('❌ No Facebook cookies found in Supabase');
@@ -159,7 +159,6 @@ async function main() {
   const storageState = JSON.parse(settings[0].value);
   console.log(`✅ Loaded ${storageState.cookies.length} cookies`);
 
-  // Launch browser
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
@@ -172,7 +171,6 @@ async function main() {
     timezoneId: 'Africa/Cairo',
   });
 
-  // Check login
   const page = await context.newPage();
   await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 60000 });
   const url = page.url();
@@ -184,7 +182,6 @@ async function main() {
   console.log('✅ Facebook login OK');
   await page.close();
 
-  // Get pending tasks
   const tasks = await supaQuery('tasks', 'status=eq.pending&order=created_at');
   console.log(`📋 Found ${tasks.length} pending tasks`);
 
@@ -194,21 +191,33 @@ async function main() {
     process.exit(0);
   }
 
-  // Process first task only (GitHub Actions runs every 15 min)
   const task = tasks[0];
   console.log(`🚀 Processing task ${task.id}: ${(task.text_content || '').slice(0, 50)}...`);
 
-  // Claim task
   await supaUpdate('tasks', task.id, { status: 'running', locked_by: 'github-actions' });
 
   const groupIds: string[] = typeof task.group_ids === 'string' ? JSON.parse(task.group_ids) : task.group_ids;
   const mediaRaw: string[] = typeof task.media_paths === 'string' ? JSON.parse(task.media_paths) : (task.media_paths || []);
 
-  // Get group URLs
   const groups = await supaQuery('groups', 'select=id,url,name');
   const groupMap = new Map(groups.map((g: any) => [g.id, g]));
 
-  // Download media
+  const historyRecords = await supaQuery('history', `task_id=eq.${task.id}&select=group_id`);
+  const doneGroupIds = new Set(historyRecords.map((h: any) => h.group_id));
+
+  const remainingGroupIds = groupIds.filter((id: string) => !doneGroupIds.has(id));
+  console.log(`📊 Total: ${groupIds.length} | Done: ${doneGroupIds.size} | Remaining: ${remainingGroupIds.length}`);
+
+  if (remainingGroupIds.length === 0) {
+    await supaUpdate('tasks', task.id, { status: 'done' });
+    console.log('✅ All groups already posted. Task completed.');
+    await browser.close();
+    process.exit(0);
+  }
+
+  const batchGroupIds = remainingGroupIds.slice(0, BATCH_SIZE);
+  console.log(`📦 Processing batch of ${batchGroupIds.length} groups`);
+
   const mediaDir = '/tmp/media';
   if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
   const localMediaPaths: string[] = [];
@@ -223,19 +232,27 @@ async function main() {
     }
   }
 
-  // Post to each group
   const postPage = await context.newPage();
-  let allSuccess = true;
+  let batchFailures = 0;
 
-  for (let i = 0; i < groupIds.length; i++) {
-    const groupId = groupIds[i];
+  for (let i = 0; i < batchGroupIds.length; i++) {
+    const groupId = batchGroupIds[i];
     const group = groupMap.get(groupId);
     if (!group) {
       console.log(`⚠️  Group ${groupId} not found, skipping`);
+      await supaInsert('history', {
+        task_id: task.id,
+        group_id: groupId,
+        group_name: 'unknown',
+        status: 'failed',
+        error_message: 'Group not found in database',
+        media_count: localMediaPaths.length,
+      });
+      batchFailures++;
       continue;
     }
 
-    console.log(`[${i + 1}/${groupIds.length}] Posting to: ${group.name}`);
+    console.log(`[${doneGroupIds.size + i + 1}/${groupIds.length}] Posting to: ${group.name}`);
     const result = await postToGroup(postPage, group.url, task.text_content, localMediaPaths);
 
     await supaInsert('history', {
@@ -251,10 +268,10 @@ async function main() {
       console.log(`  ✅ ${group.name}`);
     } else {
       console.log(`  ❌ ${group.name}: ${result.error}`);
-      allSuccess = false;
+      batchFailures++;
     }
 
-    if (i < groupIds.length - 1) {
+    if (i < batchGroupIds.length - 1) {
       console.log('  ⏳ Waiting 3-5 minutes...');
       await randomDelay();
     }
@@ -262,21 +279,18 @@ async function main() {
 
   await postPage.close();
 
-  // Update task status
-  if (allSuccess) {
+  const totalDone = doneGroupIds.size + (batchGroupIds.length - batchFailures);
+  const totalRemaining = groupIds.length - totalDone;
+  console.log(`📊 Progress: ${totalDone}/${groupIds.length} done, ${totalRemaining} remaining`);
+
+  if (totalRemaining <= 0) {
     await supaUpdate('tasks', task.id, { status: 'done' });
-    console.log('✅ Task completed successfully');
+    console.log('✅ Task completed! All groups posted.');
   } else {
-    const retries = (task.retries || 0) + 1;
-    if (retries >= (task.max_retries || 3)) {
-      await supaUpdate('tasks', task.id, { status: 'failed', retries });
-    } else {
-      await supaUpdate('tasks', task.id, { status: 'pending', retries });
-    }
-    console.log(`⚠️  Task completed with failures (retry ${retries}/${task.max_retries || 3})`);
+    await supaUpdate('tasks', task.id, { status: 'pending', locked_by: null, locked_at: null });
+    console.log(`🔄 Batch done. ${totalRemaining} groups left for next run.`);
   }
 
-  // Cleanup
   for (const p of localMediaPaths) {
     try { fs.unlinkSync(p); } catch { /* ignore */ }
   }
