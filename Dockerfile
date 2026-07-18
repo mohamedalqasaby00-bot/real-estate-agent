@@ -9,6 +9,6 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 
 ENV NODE_ENV=production
-ENV SUPABASE_URL=https://vhfgpmpmkctzpwxtbogi.supabase.co
+ENV CLOUD_MODE=true
 
 CMD ["npm", "run", "worker"]

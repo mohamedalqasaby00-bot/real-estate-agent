@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: real-estate-worker
+    runtime: image
+    image:
+      url: docker.io/mcr.microsoft.com/playwright:v1.45.0-jammy
+    envVars:
+      - key: CLOUD_MODE
+        value: "true"
+      - key: SUPABASE_URL
+        value: https://vhfgpmpmkctzpwxtbogi.supabase.co
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: COOKIES_URL
+        sync: false
+    disk:
+      name: worker-data
+      mountPath: /app/data
+      sizeGB: 1

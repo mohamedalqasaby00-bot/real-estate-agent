@@ -10,6 +10,7 @@
     "start": "node dist/main.js",
     "dashboard": "tsx src/dashboard/server.ts",
     "worker": "tsx src/worker.ts",
+    "export-cookies": "tsx src/scripts/export-cookies.ts",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
