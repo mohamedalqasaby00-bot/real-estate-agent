@@ -304,23 +304,18 @@ async function renderGroups(el) {
     });
 
     const renderTable = (list) => `
-      <table>
-        <thead><tr><th>#</th><th>الاسم</th><th>الرابط</th><th>التصنيف</th><th></th></tr></thead>
-        <tbody>
-          ${list.map((g, i) => `
-            <tr>
-              <td>${i + 1}</td>
-              <td>${g.name}</td>
-              <td><a href="${g.url}" target="_blank" style="color:#7c5cfc;">${g.url.slice(0, 40)}...</a></td>
-              <td>${g.category || '-'}</td>
-              <td>
-                <button class="btn btn-primary btn-sm" onclick='editGroup(${JSON.stringify(g).replace(/'/g, "&#39;")})'>تعديل</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteGroup('${g.id}')">حذف</button>
-              </td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+      <div class="groups-grid">
+        ${list.map((g, i) => `
+          <div class="group-card">
+            <div class="group-card-name">${g.name}</div>
+            <a href="${g.url}" target="_blank" class="group-card-url">${g.url.split('/').pop()}</a>
+            <div class="group-card-actions">
+              <button class="btn btn-primary btn-sm" onclick='editGroup(${JSON.stringify(g).replace(/'/g, "&#39;")})'>تعديل</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteGroup('${g.id}')">حذف</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
     `;
 
     el.innerHTML = `
