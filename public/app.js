@@ -9,6 +9,7 @@ let uploadedFiles = [];
 
 function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return document.querySelectorAll(sel); }
+function uuid() { return crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16); }); }
 
 async function sbQuery(table, opts = {}) {
   let url = `${REST}/${table}?select=${opts.select || '*'}`;
@@ -258,6 +259,7 @@ async function submitPost() {
     btn.textContent = 'جاري إنشاء المهمة...';
 
     const { error } = await sbInsert('tasks', {
+      id: uuid(),
       type: 'post',
       status: 'pending',
       group_ids: selectedGroups,
@@ -345,10 +347,12 @@ async function renderGroups(el) {
       return a.localeCompare(b, 'ar');
     });
 
+    let globalIndex = 1;
     const renderTable = (list) => `
       <div class="groups-grid">
-        ${list.map((g, i) => `
+        ${list.map((g) => `
           <div class="group-card">
+            <div class="group-card-number">${globalIndex++}</div>
             <div class="group-card-name">${g.name}</div>
             <a href="${g.url}" target="_blank" class="group-card-url">${g.url.split('/').pop()}</a>
             <div class="group-card-actions">
