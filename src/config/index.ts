@@ -26,8 +26,8 @@ export const config = {
   },
   facebook: {
     baseUrl: 'https://www.facebook.com',
-    minDelayMs: 30000,
-    maxDelayMs: 90000,
+    minDelayMs: 180000,
+    maxDelayMs: 300000,
     maxRetries: 3,
   },
   scheduler: {

@@ -1,9 +1,11 @@
 const SUPABASE_URL = 'https://vhfgpmpmkctzpwxtbogi.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoZmdwbXBta2N0enB3eHRib2dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMTAzMjYsImV4cCI6MjA5OTg4NjMyNn0.eTJ-lKs04SdiC-uPdmCApJfBEGElIx9tsT61gUgLdyQ';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const REST = `${SUPABASE_URL}/rest/v1`;
 const HEADERS = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
 
 let currentPage = 'dashboard';
+let uploadedFiles = [];
 
 function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return document.querySelectorAll(sel); }
@@ -44,12 +46,202 @@ function showPage(name) {
 function loadPage(name) {
   const el = $('#page-content');
   switch (name) {
+    case 'compose': renderCompose(el); break;
     case 'dashboard': renderDashboard(el); break;
     case 'groups': renderGroups(el); break;
     case 'tasks': renderTasks(el); break;
     case 'media': renderMedia(el); break;
     case 'logs': renderLogs(el); break;
     case 'settings': renderSettings(el); break;
+  }
+}
+
+// Compose (Post)
+async function renderCompose(el) {
+  uploadedFiles = [];
+  const groups = await sbQuery('groups', { order: 'name' });
+  const categories = {};
+  groups.forEach(g => {
+    const cat = g.category || 'غير مصنف';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push(g);
+  });
+  const catOrder = Object.keys(categories).sort((a, b) => {
+    if (a === 'غير مصنف') return 1;
+    if (b === 'غير مصنف') return -1;
+    return a.localeCompare(b, 'ar');
+  });
+
+  el.innerHTML = `
+    <h1>نشر منشور جديد</h1>
+    <div class="card compose-box">
+      <textarea id="compose-text" placeholder="اكتب منشورك هنا..." rows="5"></textarea>
+      <div id="compose-preview" class="compose-preview"></div>
+      <div class="compose-actions">
+        <label class="btn btn-primary" style="cursor:pointer;">
+          📷 صورة / فيديو
+          <input type="file" id="compose-files" multiple accept="image/*,video/*" style="display:none;" onchange="handleFileUpload(event)">
+        </label>
+        <span id="compose-file-count" style="color:#888;font-size:13px;"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 style="margin-bottom:12px;">اختر المجموعات</h2>
+      <div style="margin-bottom:12px;">
+        <button class="btn btn-primary btn-sm" onclick="selectAllGroups()">تحديد الكل</button>
+        <button class="btn btn-danger btn-sm" onclick="deselectAllGroups()">إلغاء التحديد</button>
+        <span id="compose-selected-count" style="color:#7c5cfc;margin-right:12px;font-size:13px;"></span>
+      </div>
+      ${catOrder.map(cat => `
+        <div class="compose-category">
+          <label style="cursor:pointer;font-weight:600;">
+            <input type="checkbox" onchange="toggleCategory('${cat}', this.checked)" style="margin-left:6px;">
+            ${cat} (${categories[cat].length})
+          </label>
+          <div class="compose-group-list">
+            ${categories[cat].map(g => `
+              <label class="compose-group-item">
+                <input type="checkbox" class="group-checkbox" value="${g.id}" onchange="updateSelectedCount()">
+                ${g.name}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <button id="compose-submit" class="btn btn-primary" style="font-size:16px;padding:12px 32px;width:100%;" onclick="submitPost()">
+        ابدأ النشر 🚀
+      </button>
+      <p style="color:#888;font-size:12px;text-align:center;margin-top:8px;">سيتم النشر في المجموعات المحددة بفاصل عشوائي 3-5 دقائق</p>
+    </div>
+    <div id="compose-status" class="card" style="margin-top:16px;display:none;">
+      <h2>حالة النشر</h2>
+      <div id="compose-status-content"></div>
+    </div>
+  `;
+}
+
+async function handleFileUpload(event) {
+  const files = Array.from(event.target.files);
+  const preview = $('#compose-preview');
+  const countEl = $('#compose-file-count');
+
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const isVideo = file.type.startsWith('video/');
+      const thumb = isVideo
+        ? `<div class="compose-thumb compose-thumb-video">🎬</div>`
+        : `<img src="${e.target.result}" class="compose-thumb">`;
+      const idx = uploadedFiles.length;
+      uploadedFiles.push({ file, name: file.name });
+      preview.innerHTML += `<div class="compose-thumb-wrap" id="thumb-${idx}">${thumb}<span class="compose-thumb-name">${file.name}</span><button class="compose-thumb-remove" onclick="removeFile(${idx})">&times;</button></div>`;
+    };
+    reader.readAsDataURL(file);
+  }
+  countEl.textContent = files.length ? `${uploadedFiles.length} ملف(ات) مرفوع(ة)` : '';
+  event.target.value = '';
+}
+
+function removeFile(idx) {
+  uploadedFiles[idx] = null;
+  const el = $(`#thumb-${idx}`);
+  if (el) el.remove();
+  const count = uploadedFiles.filter(f => f !== null).length;
+  $('#compose-file-count').textContent = count ? `${count} ملف(ات) مرفوع(ة)` : '';
+}
+
+function selectAllGroups() {
+  $$('.group-checkbox').forEach(cb => cb.checked = true);
+  $$('.compose-category input[type="checkbox"]').forEach(cb => cb.checked = true);
+  updateSelectedCount();
+}
+
+function deselectAllGroups() {
+  $$('.group-checkbox').forEach(cb => cb.checked = false);
+  $$('.compose-category > label input[type="checkbox"]').forEach(cb => cb.checked = false);
+  updateSelectedCount();
+}
+
+function toggleCategory(cat, checked) {
+  $$('.group-checkbox').forEach(cb => {
+    const label = cb.closest('.compose-group-item');
+    if (label) cb.checked = checked;
+  });
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const count = $$('.group-checkbox:checked').length;
+  const el = $('#compose-selected-count');
+  if (el) el.textContent = count ? `${count} مجموعة محددة` : '';
+}
+
+async function submitPost() {
+  const text = $('#compose-text').value.trim();
+  if (!text) return alert('اكتب نص المنشور أولاً');
+
+  const selectedGroups = Array.from($$('.group-checkbox:checked')).map(cb => cb.value);
+  if (!selectedGroups.length) return alert('اختر مجموعة واحدة على الأقل');
+
+  const btn = $('#compose-submit');
+  btn.disabled = true;
+  btn.textContent = 'جاري الرفع...';
+
+  try {
+    const mediaPaths = [];
+    const filesToUpload = uploadedFiles.filter(f => f !== null);
+
+    for (let i = 0; i < filesToUpload.length; i++) {
+      btn.textContent = `جاري رفع الملف ${i + 1} / ${filesToUpload.length}...`;
+      const file = filesToUpload[i].file;
+      const ext = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${i}.${ext}`;
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8 = new Uint8Array(arrayBuffer);
+
+      const { error } = await supabase.storage
+        .from('media-uploads')
+        .upload(fileName, uint8, { contentType: file.type });
+
+      if (error) throw new Error(`فشل رفع ${file.name}: ${error.message}`);
+
+      const { data: urlData } = supabase.storage.from('media-uploads').getPublicUrl(fileName);
+      mediaPaths.push(urlData.publicUrl);
+    }
+
+    btn.textContent = 'جاري إنشاء المهمة...';
+
+    const { error } = await sbInsert('tasks', {
+      type: 'post',
+      status: 'pending',
+      group_ids: selectedGroups,
+      text_content: text,
+      media_paths: mediaPaths,
+      max_retries: 3
+    });
+
+    if (error) throw new Error(error.message || error);
+
+    btn.textContent = 'تم النشر بنجاح! ✅';
+    btn.style.background = '#27ae60';
+
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = 'ابدأ النشر 🚀';
+      btn.style.background = '';
+      uploadedFiles = [];
+      $('#compose-preview').innerHTML = '';
+      $('#compose-text').value = '';
+      deselectAllGroups();
+      $('#compose-file-count').textContent = '';
+    }, 3000);
+
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'ابدأ النشر 🚀';
+    alert('خطأ: ' + e.message);
   }
 }
 

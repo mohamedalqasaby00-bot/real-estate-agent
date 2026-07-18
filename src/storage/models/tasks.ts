@@ -16,6 +16,7 @@ export interface Task {
   retries: number;
   max_retries: number;
   error: string | null;
+  delay_seconds: number;
 }
 
 export async function getAllTasks(): Promise<Task[]> {
@@ -48,7 +49,8 @@ export async function createTask(
   textContent: string,
   mediaPaths: string[],
   scheduledAt?: string | null,
-  maxRetries = 3
+  maxRetries = 3,
+  delaySeconds?: number
 ): Promise<Task> {
   const id = uuid();
   const { error } = await getSupabase().from('tasks').insert({
@@ -59,6 +61,7 @@ export async function createTask(
     media_paths: mediaPaths,
     scheduled_at: scheduledAt || null,
     max_retries: maxRetries,
+    delay_seconds: delaySeconds ?? 240,
   });
   if (error) throw error;
   return getTask(id) as Promise<Task>;
