@@ -90,7 +90,7 @@ function downloadFile(url: string, destPath: string): Promise<void> {
 
 async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths: string[]): Promise<{ success: boolean; groupName: string; error?: string }> {
   try {
-    await page.goto(groupUrl, { waitUntil: 'networkidle', timeout: 60000 });
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(3000);
     const groupName = await page.title();
 
@@ -174,7 +174,7 @@ async function main() {
 
   // Check login
   const page = await context.newPage();
-  await page.goto('https://www.facebook.com', { waitUntil: 'networkidle', timeout: 30000 });
+  await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 60000 });
   const url = page.url();
   if (url.includes('login') || url.includes('checkpoint')) {
     console.error('❌ Facebook session expired! Re-run export-cookies locally.');
