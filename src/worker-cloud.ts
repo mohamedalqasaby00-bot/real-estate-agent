@@ -46,9 +46,14 @@ async function supaUpdate(table: string, id: string, data: any) {
     }, (res) => {
       let d = '';
       res.on('data', c => d += c);
-      res.on('end', () => resolve());
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          console.error(`⚠️  supaUpdate ${table} failed (${res.statusCode}): ${d}`);
+        }
+        resolve();
+      });
     });
-    req.on('error', reject);
+    req.on('error', (err) => { console.error(`⚠️  supaUpdate ${table} error: ${err.message}`); resolve(); });
     req.write(body);
     req.end();
   });
@@ -65,9 +70,16 @@ async function supaInsert(table: string, data: any) {
     }, (res) => {
       let d = '';
       res.on('data', c => d += c);
-      res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          console.error(`⚠️  supaInsert ${table} failed (${res.statusCode}): ${d}`);
+          resolve(null);
+        } else {
+          try { resolve(JSON.parse(d)); } catch { resolve(null); }
+        }
+      });
     });
-    req.on('error', reject);
+    req.on('error', (err) => { console.error(`⚠️  supaInsert ${table} error: ${err.message}`); resolve(null); });
     req.write(body);
     req.end();
   });
@@ -241,11 +253,11 @@ async function main() {
     if (!group) {
       console.log(`⚠️  Group ${groupId} not found, skipping`);
       await supaInsert('history', {
+        id: crypto.randomUUID(),
         task_id: task.id,
         group_id: groupId,
         group_name: 'unknown',
         status: 'failed',
-        error_message: 'Group not found in database',
         media_count: localMediaPaths.length,
       });
       batchFailures++;
@@ -256,11 +268,11 @@ async function main() {
     const result = await postToGroup(postPage, group.url, task.text_content, localMediaPaths);
 
     await supaInsert('history', {
+      id: crypto.randomUUID(),
       task_id: task.id,
       group_id: groupId,
       group_name: group.name,
       status: result.success ? 'done' : 'failed',
-      error_message: result.error || null,
       media_count: localMediaPaths.length,
     });
 
