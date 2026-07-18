@@ -1,7 +1,7 @@
 const SUPABASE_URL = 'https://vhfgpmpmkctzpwxtbogi.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoZmdwbXBta2N0enB3eHRib2dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMTAzMjYsImV4cCI6MjA5OTg4NjMyNn0.eTJ-lKs04SdiC-uPdmCApJfBEGElIx9tsT61gUgLdyQ';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const REST = `${SUPABASE_URL}/rest/v1`;
+const STORAGE = `${SUPABASE_URL}/storage/v1`;
 const HEADERS = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
 
 let currentPage = 'dashboard';
@@ -35,6 +35,16 @@ async function sbUpdate(table, id, data) {
 async function sbDelete(table, id) {
   const r = await fetch(`${REST}/${table}?id=eq.${id}`, { method: 'DELETE', headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } });
   if (!r.ok) throw new Error(await r.text());
+}
+
+async function sbUpload(fileName, file) {
+  const r = await fetch(`${STORAGE}/object/media-uploads/${fileName}`, {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': file.type },
+    body: file
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return `${STORAGE}/object/public/media-uploads/${fileName}`;
 }
 
 function showPage(name) {
@@ -198,17 +208,9 @@ async function submitPost() {
       const file = filesToUpload[i].file;
       const ext = file.name.split('.').pop();
       const fileName = `${Date.now()}-${i}.${ext}`;
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8 = new Uint8Array(arrayBuffer);
 
-      const { error } = await supabase.storage
-        .from('media-uploads')
-        .upload(fileName, uint8, { contentType: file.type });
-
-      if (error) throw new Error(`فشل رفع ${file.name}: ${error.message}`);
-
-      const { data: urlData } = supabase.storage.from('media-uploads').getPublicUrl(fileName);
-      mediaPaths.push(urlData.publicUrl);
+      const publicUrl = await sbUpload(fileName, file);
+      mediaPaths.push(publicUrl);
     }
 
     btn.textContent = 'جاري إنشاء المهمة...';
