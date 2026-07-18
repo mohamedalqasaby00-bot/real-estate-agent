@@ -3,8 +3,10 @@ import path from 'path';
 import https from 'https';
 import http from 'http';
 import { config } from '../config/index.js';
-import { getPendingTasks, getTask, updateTaskStatus, incrementTaskRetry } from '../storage/index.js';
+import { getPendingTasks, getTask, claimTask, updateTaskStatus, incrementTaskRetry } from '../storage/index.js';
 import { postToGroups } from '../facebook/index.js';
+
+const WORKER_ID = `worker-${process.env.RAILWAY_DEPLOYMENT_ID || process.env.COMPUTERNAME || 'local'}-${Date.now()}`;
 
 let running = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -53,10 +55,13 @@ async function processQueue(): Promise<void> {
 }
 
 async function executeTask(taskId: string): Promise<void> {
-  const task = await getTask(taskId);
-  if (!task || task.status !== 'pending') return;
+  const claimed = await claimTask(taskId, WORKER_ID);
+  if (!claimed) return;
 
-  await updateTaskStatus(taskId, 'running');
+  const task = await getTask(taskId);
+  if (!task) return;
+
+  console.log(`[${WORKER_ID}] Executing task ${taskId}: ${task.text_content.slice(0, 50)}...`);
 
   try {
     const groupIds: string[] = typeof task.group_ids === 'string' ? JSON.parse(task.group_ids) : task.group_ids;

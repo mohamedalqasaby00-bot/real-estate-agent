@@ -17,6 +17,7 @@ export interface Task {
   max_retries: number;
   error: string | null;
   delay_seconds: number;
+  locked_by: string | null;
 }
 
 export async function getAllTasks(): Promise<Task[]> {
@@ -35,6 +36,17 @@ export async function getPendingTasks(): Promise<Task[]> {
     .order('created_at');
   if (error) throw error;
   return (data || []).map(normalizeTask);
+}
+
+export async function claimTask(taskId: string, workerId: string): Promise<boolean> {
+  const { data, error } = await getSupabase()
+    .from('tasks')
+    .update({ status: 'running', locked_by: workerId, executed_at: new Date().toISOString() })
+    .eq('id', taskId)
+    .eq('status', 'pending')
+    .select();
+  if (error) throw error;
+  return (data && data.length > 0);
 }
 
 export async function getTask(id: string): Promise<Task | undefined> {
