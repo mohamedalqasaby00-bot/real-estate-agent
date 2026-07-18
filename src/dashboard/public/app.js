@@ -96,23 +96,30 @@ async function renderCompose(el) {
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <h2 style="margin-bottom:12px;">اختر المجموعات</h2>
-      <div style="margin-bottom:12px;">
-        <button class="btn btn-primary btn-sm" onclick="selectAllGroups()">تحديد الكل</button>
-        <button class="btn btn-danger btn-sm" onclick="deselectAllGroups()">إلغاء التحديد</button>
-        <span id="compose-selected-count" style="color:#7c5cfc;margin-right:12px;font-size:13px;"></span>
+      <div class="compose-groups-header">
+        <h2>اختر المجموعات</h2>
+        <span id="compose-selected-count" class="compose-selected-badge"></span>
+      </div>
+      <div class="compose-groups-toolbar">
+        <input type="text" id="compose-search-groups" placeholder="بحث عن مجموعة..." style="margin-bottom:0;max-width:300px;" oninput="filterComposeGroups(this.value)">
+        <div class="compose-groups-toolbar-btns">
+          <button class="btn btn-primary btn-sm" onclick="selectAllGroups()">تحديد الكل</button>
+          <button class="btn btn-danger btn-sm" onclick="deselectAllGroups()">إلغاء التحديد</button>
+        </div>
       </div>
       ${catOrder.map(cat => `
         <div class="compose-category">
-          <label style="cursor:pointer;font-weight:600;">
-            <input type="checkbox" onchange="toggleCategory('${cat}', this.checked)" style="margin-left:6px;">
-            ${cat} (${categories[cat].length})
-          </label>
-          <div class="compose-group-list">
+          <div class="compose-category-header" onclick="toggleComposeCategory(this)">
+            <input type="checkbox" class="cat-toggle" onchange="toggleCategory('${cat}', this.checked)" onclick="event.stopPropagation()">
+            <span class="compose-category-name">${cat}</span>
+            <span class="compose-category-count">${categories[cat].length}</span>
+            <span class="compose-category-arrow">▾</span>
+          </div>
+          <div class="compose-category-groups">
             ${categories[cat].map(g => `
               <label class="compose-group-item">
                 <input type="checkbox" class="group-checkbox" value="${g.id}" onchange="updateSelectedCount()">
-                ${g.name}
+                <span class="compose-group-name">${g.name}</span>
               </label>
             `).join('')}
           </div>
@@ -175,17 +182,52 @@ function deselectAllGroups() {
 }
 
 function toggleCategory(cat, checked) {
+  const catEl = document.querySelector(`.compose-category`);
   $$('.group-checkbox').forEach(cb => {
-    const label = cb.closest('.compose-group-item');
-    if (label) cb.checked = checked;
+    const category = cb.closest('.compose-category');
+    const categoryName = category ? category.querySelector('.compose-category-name') : null;
+    if (categoryName && categoryName.textContent.trim() === cat) {
+      cb.checked = checked;
+    }
   });
   updateSelectedCount();
+}
+
+function toggleComposeCategory(header) {
+  const groups = header.nextElementSibling;
+  const arrow = header.querySelector('.compose-category-arrow');
+  const isOpen = groups.style.display !== 'none';
+  groups.style.display = isOpen ? 'none' : 'grid';
+  arrow.style.transform = isOpen ? 'rotate(-90deg)' : 'rotate(0deg)';
+}
+
+function filterComposeGroups(query) {
+  const q = query.toLowerCase();
+  $$('.compose-category').forEach(cat => {
+    const items = cat.querySelectorAll('.compose-group-item');
+    let visibleCount = 0;
+    items.forEach(item => {
+      const name = item.querySelector('.compose-group-name').textContent.toLowerCase();
+      const match = !q || name.includes(q);
+      item.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    });
+    cat.style.display = visibleCount ? '' : 'none';
+    const countEl = cat.querySelector('.compose-category-count');
+    if (countEl) countEl.textContent = visibleCount;
+  });
 }
 
 function updateSelectedCount() {
   const count = $$('.group-checkbox:checked').length;
   const el = $('#compose-selected-count');
-  if (el) el.textContent = count ? `${count} مجموعة محددة` : '';
+  if (!el) return;
+  if (count) {
+    el.textContent = `${count} مجموعة محددة`;
+    el.classList.add('visible');
+  } else {
+    el.classList.remove('visible');
+  }
 }
 
 async function submitPost() {
