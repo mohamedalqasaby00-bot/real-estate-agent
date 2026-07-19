@@ -309,19 +309,30 @@ async function submitPost() {
 async function renderDashboard(el) {
   el.innerHTML = '<h1>لوحة التحكم</h1><p style="color:#888;">جاري التحميل...</p>';
   try {
-    const [groups, tasks, media, history] = await Promise.all([
+    const [groups, tasks, media, history, settings] = await Promise.all([
       sbQuery('groups'),
       sbQuery('tasks'),
       sbQuery('media'),
       sbQuery('history', { select: '*', order: 'created_at.desc', limit: 5 }),
+      sbQuery('settings', { filter: 'key=eq.posting_enabled' }),
     ]);
 
+    const postingEnabled = settings.length > 0 ? settings[0].value !== 'false' : true;
     const pending = tasks.filter(t => t.status === 'pending').length;
     const done = tasks.filter(t => t.status === 'done').length;
     const failed = tasks.filter(t => t.status === 'failed').length;
 
     el.innerHTML = `
       <h1>لوحة التحكم</h1>
+      <div class="card" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;padding:16px 24px;">
+        <div>
+          <h2 style="margin:0;">النشر</h2>
+          <p style="color:#888;margin:4px 0 0;font-size:13px;">${postingEnabled ? 'النشر مفعل - الويبورك بينشر تلقائي' : 'النشر متوقف - الويبورك مش بينشر'}</p>
+        </div>
+        <button id="toggle-posting-btn" class="btn ${postingEnabled ? 'btn-danger' : 'btn-primary'}" onclick="togglePosting()" style="font-size:14px;padding:10px 24px;min-width:120px;">
+          ${postingEnabled ? 'إيقاف النشر' : 'تشغيل النشر'}
+        </button>
+      </div>
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-number">${groups.length}</div><div class="stat-label">المجموعات</div></div>
         <div class="stat-card"><div class="stat-number">${pending}</div><div class="stat-label">مهام pending</div></div>
@@ -341,6 +352,25 @@ async function renderDashboard(el) {
     `;
   } catch (e) {
     el.innerHTML = `<h1>لوحة التحكم</h1><div class="card"><p style="color:#ff6b6b;">خطأ: ${e.message}</p></div>`;
+  }
+}
+
+async function togglePosting() {
+  const btn = $('#toggle-posting-btn');
+  btn.disabled = true;
+  btn.textContent = 'جاري التغيير...';
+  try {
+    const current = await sbQuery('settings', { filter: 'key=eq.posting_enabled' });
+    const newValue = current.length > 0 ? (current[0].value === 'false' ? 'true' : 'false') : 'true';
+    if (current.length > 0) {
+      await sbUpdate('settings', current[0].id, { value: newValue });
+    } else {
+      await sbInsert('settings', { key: 'posting_enabled', value: newValue });
+    }
+    renderDashboard($('#page-content'));
+  } catch (e) {
+    alert('خطأ: ' + e.message);
+    btn.disabled = false;
   }
 }
 

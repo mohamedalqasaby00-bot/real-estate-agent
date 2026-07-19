@@ -109,19 +109,17 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     await page.waitForTimeout(5000);
     const currentUrl = page.url();
     if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
-      throw new Error('الجلسة غير صالحة - تحويل إلى صفحة تسجيل الدخول');
+      throw new Error('Session expired');
     }
     let groupName = await page.title();
     if (groupName === 'Facebook' || !groupName) groupName = groupUrl.split('/').pop() || groupUrl;
 
-    if (page.url().includes('/groups/') && !page.url().includes('/posts/')) {
-      const pendingText = await page.locator('body').innerText().catch(() => '');
-      if (pendingText.includes('Your membership is pending') || pendingText.includes('your request to join')) {
-        throw new Error('العضوية لسه معلقة - لم يُقبل في الجروب');
-      }
+    const bodyText = await page.locator('body').innerText().catch(() => '');
+    if (bodyText.includes('Your membership is pending') || bodyText.includes('your request to join')) {
+      throw new Error('Membership pending');
     }
 
-    for (const sel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]', 'button[aria-label="Close"]']) {
+    for (const sel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]']) {
       const btn = page.locator(sel).first();
       if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await btn.click().catch(() => {});
@@ -129,117 +127,136 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       }
     }
 
-    const writeBtnSelectors = [
-      'div[role="button"]:has-text("اكتبomething...")',
-      'div[aria-label*="اكتبSomething"]',
-      'div[role="textbox"][aria-label*="Write"]',
-      'div[role="textbox"][aria-label*="اكتب"]',
-      'div[role="textbox"][data-lexical-editor="true"]',
-      'div[contenteditable="true"][data-lexical-editor="true"]',
-    ];
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(1000);
 
-    let composer: any = null;
-    for (const sel of writeBtnSelectors) {
-      const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
-        composer = el;
-        break;
+    let dialogOpened = false;
+    const allWriteEls = await page.locator('[aria-label="Write something..."], [aria-label="اكتب ماذا يدور في خاطرك..."]').all();
+    console.log(`  🔍 Found ${allWriteEls.length} "Write something" elements`);
+
+    for (let i = 0; i < allWriteEls.length; i++) {
+      const el = allWriteEls[i];
+      if (!await el.isVisible().catch(() => false)) continue;
+      const box = await el.boundingBox().catch(() => null);
+      if (!box || box.y > 600) {
+        console.log(`  ⏭️ Skipping element ${i} (y=${box?.y}) - too far down`);
+        continue;
       }
+
+      console.log(`  🖱️ Clicking "Write something" element ${i} at y=${box.y}`);
+      await el.click();
+      await page.waitForTimeout(3000);
+
+      const dialogCheck = await page.locator('div[role="dialog"]').first().isVisible({ timeout: 2000 }).catch(() => false);
+      if (dialogCheck) {
+        const dText = await page.locator('div[role="dialog"]').first().innerText().catch(() => '');
+        if (dText.includes('Post to') || dText.includes('Create') || dText.includes('public') || dText.includes('نشر') || dText.includes('Write something')) {
+          dialogOpened = true;
+          console.log(`  ✅ Create Post dialog opened from element ${i}`);
+          break;
+        }
+      }
+
+      console.log(`  ❌ Element ${i} did not open Create Post dialog, closing...`);
+      for (const closeSel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]']) {
+        const cBtn = page.locator(closeSel).first();
+        if (await cBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+          await cBtn.click().catch(() => {});
+          await page.waitForTimeout(500);
+        }
+      }
+      await page.waitForTimeout(500);
     }
 
-    if (!composer) {
-      const bodyText = await page.locator('body').innerText().catch(() => '');
-      if (bodyText.includes('Write something') || bodyText.includes('اكتب')) {
-        const writeTrigger = page.locator('div[role="button"]').filter({ hasText: /Write something|اكتب/ }).first();
-        if (await writeTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await writeTrigger.click();
-          await page.waitForTimeout(3000);
+    if (!dialogOpened) {
+      const fallbackEls = await page.locator('span').filter({ hasText: 'Write something' }).all();
+      for (let i = 0; i < fallbackEls.length; i++) {
+        const box = await fallbackEls[i].boundingBox().catch(() => null);
+        if (!box || box.y > 600) continue;
+        await fallbackEls[i].click();
+        await page.waitForTimeout(3000);
+        const dialogCheck = await page.locator('div[role="dialog"]').first().isVisible({ timeout: 2000 }).catch(() => false);
+        if (dialogCheck) {
+          dialogOpened = true;
+          break;
+        }
+        for (const closeSel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]']) {
+          const cBtn = page.locator(closeSel).first();
+          if (await cBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+            await cBtn.click().catch(() => {});
+            await page.waitForTimeout(500);
+          }
         }
       }
     }
 
-    for (const sel of ['div[role="dialog"] div[data-lexical-editor="true"]', 'div[role="dialog"] div[role="textbox"]', 'div[role="dialog"] div[contenteditable="true"]']) {
+    if (!dialogOpened) throw new Error('Could not open Create Post dialog');
+
+    const dialog = page.locator('div[role="dialog"]').first();
+    const dialogTitle = await dialog.innerText().catch(() => '');
+    console.log(`  📸 Dialog: ${dialogTitle.slice(0, 150)}`);
+
+    let editor: any = null;
+    const editorSelectors = [
+      'div[role="dialog"] div[data-lexical-editor="true"]',
+      'div[role="dialog"] div[contenteditable="true"][role="textbox"]',
+      'div[role="dialog"] div[contenteditable="true"]',
+    ];
+    for (const sel of editorSelectors) {
       const el = page.locator(sel).first();
       if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
-        composer = el;
+        editor = el;
         break;
       }
     }
 
-    if (!composer) {
-      for (const sel of ['div[data-lexical-editor="true"]', 'div[role="textbox"]', 'div[contenteditable="true"]']) {
-        const el = page.locator(sel).first();
-        if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
-          composer = el;
+    if (!editor) {
+      console.log(`  📸 Dialog text: ${dialogText.slice(0, 300)}`);
+      throw new Error('Could not find text editor in dialog');
+    }
+
+    await editor.click();
+    await page.waitForTimeout(500);
+    await page.keyboard.type(text, { delay: 20 });
+    await page.waitForTimeout(1500);
+
+    if (mediaPaths.length) {
+      for (const mediaPath of mediaPaths) {
+        const fileInput = page.locator('div[role="dialog"] input[type="file"]').first();
+        if (await fileInput.count()) {
+          await fileInput.setInputFiles(mediaPath);
+        } else {
+          await page.locator('input[type="file"]').first().setInputFiles(mediaPath);
+        }
+        await page.waitForTimeout(5000);
+      }
+    }
+
+    let postBtn: any = null;
+    const allBtns = page.locator('div[role="dialog"] div[role="button"], div[role="dialog"] span[role="button"]');
+    const btnCount = await allBtns.count();
+    for (let i = 0; i < btnCount; i++) {
+      const btnText = (await allBtns.nth(i).innerText().catch(() => '')).trim();
+      if (btnText === 'Post' || btnText === 'نشر' || btnText === 'Share') {
+        const disabled = await allBtns.nth(i).getAttribute('aria-disabled').catch(() => null);
+        if (disabled !== 'true') {
+          postBtn = allBtns.nth(i);
           break;
         }
       }
     }
 
-    if (!composer) {
-      console.log(`  📸 Page URL: ${page.url()}`);
-      console.log(`  📸 Page title: ${await page.title()}`);
-      const bodyText = await page.locator('body').innerText().catch(() => 'N/A');
-      console.log(`  📸 Body text (first 300 chars): ${bodyText.slice(0, 300)}`);
-      await page.screenshot({ path: `/tmp/debug-${Date.now()}.png` }).catch(() => {});
-      throw new Error('لم يتم العثور على صندوق الكتابة');
-    }
+    if (!postBtn) throw new Error('Could not find Post button');
 
-    await composer.click();
-    await page.waitForTimeout(1500);
-    await composer.pressSequentially(text, { delay: 30 });
-    await page.waitForTimeout(1000);
+    const textBeforePost = await editor.innerText().catch(() => '');
+    await postBtn.click();
+    await page.waitForTimeout(5000);
 
-    if (mediaPaths.length) {
-      for (const mediaPath of mediaPaths) {
-        const fileInput = page.locator('input[type="file"]').first();
-        if (await fileInput.isVisible().catch(() => false)) {
-          await fileInput.setInputFiles(mediaPath);
-          await page.waitForTimeout(5000);
-        }
-      }
-    }
-
-    const postBtnSelectors = [
-      'div[aria-label="نشر"]',
-      'div[aria-label="Post"]',
-      'div[role="dialog"] div[aria-label="نشر"]',
-      'div[role="dialog"] div[aria-label="Post"]',
-      'span[role="button"]:has-text("نشر")',
-      'span[role="button"]:has-text("Post")',
-      'div[role="dialog"] div[role="button"]:has-text("نشر")',
-      'div[role="dialog"] div[role="button"]:has-text("Post")',
-      'div[role="button"]:has-text("نشر")',
-      'div[role="button"]:has-text("Post")',
-      'button[type="submit"]',
-    ];
-    let clicked = false;
-    for (const sel of postBtnSelectors) {
-      const btn = page.locator(sel).first();
-      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await btn.click();
-        await page.waitForTimeout(5000);
-        clicked = true;
-        break;
-      }
-    }
-    if (!clicked) throw new Error('لم يتم العثور على زر النشر');
-
-    await page.screenshot({ path: `/tmp/post-${Date.now()}.png` }).catch(() => {});
-
-    const dialogStillOpen = await page.locator('div[role="dialog"]').first().isVisible({ timeout: 3000 }).catch(() => false);
-    if (dialogStillOpen) {
-      const dialogText = await page.locator('div[role="dialog"]').first().innerText().catch(() => '');
-      if (dialogText.includes('Posting') || dialogText.includes('نشر')) {
-        await page.waitForTimeout(5000);
-      }
-    }
-
-    const postStillVisible = await composer.isVisible({ timeout: 2000 }).catch(() => false);
-    if (postStillVisible) {
-      const composerText = await composer.innerText().catch(() => '');
-      if (composerText.includes(text.slice(0, 20))) {
-        throw new Error('البوست لم يُنشر - النص لسه ظاهر في صندوق الكتابة');
+    const dialogAfter = await dialog.isVisible({ timeout: 5000 }).catch(() => false);
+    if (dialogAfter) {
+      const editorAfter = await page.locator('div[role="dialog"] div[data-lexical-editor="true"]').first().innerText().catch(() => '');
+      if (editorAfter.includes(text.slice(0, 15))) {
+        throw new Error('Post did not publish - dialog still open with text');
       }
     }
 
@@ -257,6 +274,12 @@ function randomDelay(): Promise<void> {
 async function main() {
   console.log('🔄 GitHub Actions Worker starting...');
   console.log(`📦 Batch size: ${BATCH_SIZE} groups per run`);
+
+  const postingSetting = await supaQuery('settings', 'key=eq.posting_enabled&select=value');
+  if (postingSetting.length && postingSetting[0].value === 'false') {
+    console.log('⏸️ Posting is DISABLED. Exiting.');
+    process.exit(0);
+  }
 
   const settings = await supaQuery('settings', 'key=eq.facebook_cookies&select=value');
   if (!settings.length || !settings[0].value) {
