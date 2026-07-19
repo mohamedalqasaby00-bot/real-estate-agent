@@ -319,7 +319,7 @@ async function main() {
     }
 
     if (i < batchGroupIds.length - 1) {
-      console.log('  ⏳ Waiting 3-5 minutes...');
+      console.log(`  ⏳ Waiting ${DELAY_MIN_MS/1000}-${DELAY_MAX_MS/1000} seconds...`);
       await randomDelay();
     }
   }
