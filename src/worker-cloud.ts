@@ -119,27 +119,43 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     let groupName = await page.title();
     if (groupName === 'Facebook' || !groupName) groupName = groupUrl.split('/').pop() || groupUrl;
 
+    const closeBtnSelectors = [
+      'div[aria-label="Close"]',
+      'div[aria-label="close"]',
+      'div[role="dialog"] div[aria-label="Close"]',
+      'button[aria-label="Close"]',
+    ];
+    for (const sel of closeBtnSelectors) {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await btn.click({ force: true }).catch(() => {});
+        await page.waitForTimeout(1000);
+      }
+    }
+
     const composerSelectors = [
-      'div[role="textbox"]',
-      'div[contenteditable="true"]',
-      'div[aria-label*="اكتب"]',
-      'div[aria-label*="منشور"]',
-      'form textarea',
       'div[data-lexical-editor="true"]',
+      'div[role="textbox"]',
+      'div[contenteditable="true"][data-lexical-editor]',
+      'div[aria-label*="اكتب"]',
+      'div[aria-label*="Post"]',
+      'div[aria-label*="Write"]',
+      'div[contenteditable="true"]',
+      'form textarea',
     ];
     let composer: any = null;
     for (const sel of composerSelectors) {
       const el = page.locator(sel).first();
-      if (await el.isVisible().catch(() => false)) { composer = el; break; }
+      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) { composer = el; break; }
     }
     if (!composer) {
       console.log(`  📸 Page URL after navigation: ${page.url()}`);
       console.log(`  📸 Page title: ${await page.title()}`);
       const bodyText = await page.locator('body').innerText().catch(() => 'N/A');
-      console.log(`  📸 Body text (first 200 chars): ${bodyText.slice(0, 200)}`);
+      console.log(`  📸 Body text (first 300 chars): ${bodyText.slice(0, 300)}`);
       throw new Error('لم يتم العثور على صندوق الكتابة');
     }
-    await composer.click();
+    await composer.click({ force: true });
     await page.waitForTimeout(1000);
     await composer.fill(text);
     await page.waitForTimeout(500);
@@ -162,12 +178,13 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       'div[role="button"]:has-text("نشر")',
       'div[role="button"]:has-text("Post")',
       'button[type="submit"]',
+      'div[role="button"]:has-text("Share")',
     ];
     let clicked = false;
     for (const sel of postBtnSelectors) {
       const btn = page.locator(sel).first();
-      if (await btn.isVisible().catch(() => false)) {
-        await btn.click();
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await btn.click({ force: true });
         await page.waitForTimeout(3000);
         clicked = true;
         break;
