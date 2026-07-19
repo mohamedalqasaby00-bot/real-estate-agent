@@ -130,7 +130,7 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     }
 
     const writeBtnSelectors = [
-      'div[role="button"]:has-text("اكتبsomething...")',
+      'div[role="button"]:has-text("اكتبomething...")',
       'div[aria-label*="اكتبSomething"]',
       'div[role="textbox"][aria-label*="Write"]',
       'div[role="textbox"][aria-label*="اكتب"]',
@@ -181,12 +181,13 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       console.log(`  📸 Page title: ${await page.title()}`);
       const bodyText = await page.locator('body').innerText().catch(() => 'N/A');
       console.log(`  📸 Body text (first 300 chars): ${bodyText.slice(0, 300)}`);
+      await page.screenshot({ path: `/tmp/debug-${Date.now()}.png` }).catch(() => {});
       throw new Error('لم يتم العثور على صندوق الكتابة');
     }
 
     await composer.click();
     await page.waitForTimeout(1500);
-    await composer.fill(text);
+    await composer.pressSequentially(text, { delay: 30 });
     await page.waitForTimeout(1000);
 
     if (mediaPaths.length) {
@@ -223,6 +224,8 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       }
     }
     if (!clicked) throw new Error('لم يتم العثور على زر النشر');
+
+    await page.screenshot({ path: `/tmp/post-${Date.now()}.png` }).catch(() => {});
 
     const dialogStillOpen = await page.locator('div[role="dialog"]').first().isVisible({ timeout: 3000 }).catch(() => false);
     if (dialogStillOpen) {
