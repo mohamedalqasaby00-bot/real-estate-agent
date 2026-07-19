@@ -171,10 +171,6 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     if (!clicked) throw new Error('لم يتم العثور على زر النشر');
 
     await page.waitForTimeout(2000);
-    const currentUrl = page.url();
-    if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
-      throw new Error('الجلسة انتهت');
-    }
 
     return { success: true, groupName };
   } catch (err: any) {
