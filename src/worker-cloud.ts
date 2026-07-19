@@ -123,7 +123,10 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       const el = page.locator(sel).first();
       if (await el.isVisible().catch(() => false)) { composer = el; break; }
     }
-    if (!composer) throw new Error('لم يتم العثور على صندوق الكتابة');
+    if (!composer) {
+      await page.screenshot({ path: '/tmp/debug-no-composer.png', fullPage: true });
+      throw new Error('لم يتم العثور على صندوق الكتابة');
+    }
     await composer.click();
     await page.waitForTimeout(1000);
     await composer.fill(text);
