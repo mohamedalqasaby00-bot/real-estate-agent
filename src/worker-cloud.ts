@@ -109,56 +109,85 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     await page.waitForTimeout(5000);
     const currentUrl = page.url();
     if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
-      console.log(`  🔍 Login redirect detected: ${currentUrl}`);
-      await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await page.waitForTimeout(5000);
-      if (page.url().includes('login') || page.url().includes('checkpoint')) {
-        throw new Error('الجلسة غير صالحة - تحويل إلى صفحة تسجيل الدخول');
-      }
+      throw new Error('الجلسة غير صالحة - تحويل إلى صفحة تسجيل الدخول');
     }
     let groupName = await page.title();
     if (groupName === 'Facebook' || !groupName) groupName = groupUrl.split('/').pop() || groupUrl;
 
-    const closeBtnSelectors = [
-      'div[aria-label="Close"]',
-      'div[aria-label="close"]',
-      'div[role="dialog"] div[aria-label="Close"]',
-      'button[aria-label="Close"]',
-    ];
-    for (const sel of closeBtnSelectors) {
+    if (page.url().includes('/groups/') && !page.url().includes('/posts/')) {
+      const pendingText = await page.locator('body').innerText().catch(() => '');
+      if (pendingText.includes('Your membership is pending') || pendingText.includes('your request to join')) {
+        throw new Error('العضوية لسه معلقة - لم يُقبل في الجروب');
+      }
+    }
+
+    for (const sel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]', 'button[aria-label="Close"]']) {
       const btn = page.locator(sel).first();
       if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await btn.click({ force: true }).catch(() => {});
+        await btn.click().catch(() => {});
         await page.waitForTimeout(1000);
       }
     }
 
-    const composerSelectors = [
-      'div[data-lexical-editor="true"]',
-      'div[role="textbox"]',
-      'div[contenteditable="true"][data-lexical-editor]',
-      'div[aria-label*="اكتب"]',
-      'div[aria-label*="Post"]',
-      'div[aria-label*="Write"]',
-      'div[contenteditable="true"]',
-      'form textarea',
+    const writeBtnSelectors = [
+      'div[role="button"]:has-text("اكتبsomething...")',
+      'div[aria-label*="اكتبSomething"]',
+      'div[role="textbox"][aria-label*="Write"]',
+      'div[role="textbox"][aria-label*="اكتب"]',
+      'div[role="textbox"][data-lexical-editor="true"]',
+      'div[contenteditable="true"][data-lexical-editor="true"]',
     ];
+
     let composer: any = null;
-    for (const sel of composerSelectors) {
+    for (const sel of writeBtnSelectors) {
       const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) { composer = el; break; }
+      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+        composer = el;
+        break;
+      }
     }
+
     if (!composer) {
-      console.log(`  📸 Page URL after navigation: ${page.url()}`);
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      if (bodyText.includes('Write something') || bodyText.includes('اكتب')) {
+        const writeTrigger = page.locator('div[role="button"]').filter({ hasText: /Write something|اكتب/ }).first();
+        if (await writeTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await writeTrigger.click();
+          await page.waitForTimeout(3000);
+        }
+      }
+    }
+
+    for (const sel of ['div[role="dialog"] div[data-lexical-editor="true"]', 'div[role="dialog"] div[role="textbox"]', 'div[role="dialog"] div[contenteditable="true"]']) {
+      const el = page.locator(sel).first();
+      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+        composer = el;
+        break;
+      }
+    }
+
+    if (!composer) {
+      for (const sel of ['div[data-lexical-editor="true"]', 'div[role="textbox"]', 'div[contenteditable="true"]']) {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
+          composer = el;
+          break;
+        }
+      }
+    }
+
+    if (!composer) {
+      console.log(`  📸 Page URL: ${page.url()}`);
       console.log(`  📸 Page title: ${await page.title()}`);
       const bodyText = await page.locator('body').innerText().catch(() => 'N/A');
       console.log(`  📸 Body text (first 300 chars): ${bodyText.slice(0, 300)}`);
       throw new Error('لم يتم العثور على صندوق الكتابة');
     }
-    await composer.click({ force: true });
-    await page.waitForTimeout(1000);
+
+    await composer.click();
+    await page.waitForTimeout(1500);
     await composer.fill(text);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     if (mediaPaths.length) {
       for (const mediaPath of mediaPaths) {
@@ -173,26 +202,43 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     const postBtnSelectors = [
       'div[aria-label="نشر"]',
       'div[aria-label="Post"]',
+      'div[role="dialog"] div[aria-label="نشر"]',
+      'div[role="dialog"] div[aria-label="Post"]',
       'span[role="button"]:has-text("نشر")',
       'span[role="button"]:has-text("Post")',
+      'div[role="dialog"] div[role="button"]:has-text("نشر")',
+      'div[role="dialog"] div[role="button"]:has-text("Post")',
       'div[role="button"]:has-text("نشر")',
       'div[role="button"]:has-text("Post")',
       'button[type="submit"]',
-      'div[role="button"]:has-text("Share")',
     ];
     let clicked = false;
     for (const sel of postBtnSelectors) {
       const btn = page.locator(sel).first();
       if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await btn.click({ force: true });
-        await page.waitForTimeout(3000);
+        await btn.click();
+        await page.waitForTimeout(5000);
         clicked = true;
         break;
       }
     }
     if (!clicked) throw new Error('لم يتم العثور على زر النشر');
 
-    await page.waitForTimeout(2000);
+    const dialogStillOpen = await page.locator('div[role="dialog"]').first().isVisible({ timeout: 3000 }).catch(() => false);
+    if (dialogStillOpen) {
+      const dialogText = await page.locator('div[role="dialog"]').first().innerText().catch(() => '');
+      if (dialogText.includes('Posting') || dialogText.includes('نشر')) {
+        await page.waitForTimeout(5000);
+      }
+    }
+
+    const postStillVisible = await composer.isVisible({ timeout: 2000 }).catch(() => false);
+    if (postStillVisible) {
+      const composerText = await composer.innerText().catch(() => '');
+      if (composerText.includes(text.slice(0, 20))) {
+        throw new Error('البوست لم يُنشر - النص لسه ظاهر في صندوق الكتابة');
+      }
+    }
 
     return { success: true, groupName };
   } catch (err: any) {
