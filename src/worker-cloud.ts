@@ -107,6 +107,10 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
   try {
     await page.goto(groupUrl, { waitUntil: 'networkidle', timeout: 60000 });
     await page.waitForTimeout(4000);
+    const currentUrl = page.url();
+    if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
+      throw new Error('الجلسة انتهت عند فتح المجموعة، عنوان: ' + currentUrl);
+    }
     let groupName = await page.title();
     if (groupName === 'Facebook' || !groupName) groupName = groupUrl.split('/').pop() || groupUrl;
 
@@ -124,7 +128,10 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       if (await el.isVisible().catch(() => false)) { composer = el; break; }
     }
     if (!composer) {
-      await page.screenshot({ path: '/tmp/debug-no-composer.png', fullPage: true });
+      console.log(`  📸 Page URL after navigation: ${page.url()}`);
+      console.log(`  📸 Page title: ${await page.title()}`);
+      const bodyText = await page.locator('body').innerText().catch(() => 'N/A');
+      console.log(`  📸 Body text (first 200 chars): ${bodyText.slice(0, 200)}`);
       throw new Error('لم يتم العثور على صندوق الكتابة');
     }
     await composer.click();
