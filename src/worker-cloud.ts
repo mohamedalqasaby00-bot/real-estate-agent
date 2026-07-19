@@ -105,11 +105,16 @@ function downloadFile(url: string, destPath: string): Promise<void> {
 
 async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths: string[]): Promise<{ success: boolean; groupName: string; error?: string }> {
   try {
-    await page.goto(groupUrl, { waitUntil: 'networkidle', timeout: 60000 });
-    await page.waitForTimeout(4000);
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(5000);
     const currentUrl = page.url();
     if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
-      throw new Error('الجلسة انتهت عند فتح المجموعة، عنوان: ' + currentUrl);
+      console.log(`  🔍 Login redirect detected: ${currentUrl}`);
+      await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(5000);
+      if (page.url().includes('login') || page.url().includes('checkpoint')) {
+        throw new Error('الجلسة غير صالحة - تحويل إلى صفحة تسجيل الدخول');
+      }
     }
     let groupName = await page.title();
     if (groupName === 'Facebook' || !groupName) groupName = groupUrl.split('/').pop() || groupUrl;
@@ -206,6 +211,7 @@ async function main() {
     viewport: { width: 1366, height: 768 },
     locale: 'ar-EG',
     timezoneId: 'Africa/Cairo',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
   });
 
   const page = await context.newPage();
