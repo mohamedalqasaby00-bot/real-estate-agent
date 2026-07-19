@@ -296,10 +296,10 @@ async function main() {
   console.log(`📊 Progress: ${totalDone}/${groupIds.length} done, ${totalRemaining} remaining`);
 
   if (totalRemaining <= 0) {
-    await supaUpdate('tasks', task.id, { status: 'done' });
+    await supaUpdate('tasks', task.id, { status: 'done', locked_by: 'none' });
     console.log('✅ Task completed! All groups posted.');
   } else {
-    await supaUpdate('tasks', task.id, { status: 'pending', locked_by: null, locked_at: null });
+    await supaUpdate('tasks', task.id, { status: 'pending', locked_by: 'none' });
     console.log(`🔄 Batch done. ${totalRemaining} groups left for next run.`);
   }
 
