@@ -363,7 +363,8 @@ async function togglePosting() {
     const current = await sbQuery('settings', { filter: 'key=eq.posting_enabled' });
     const newValue = current.length > 0 ? (current[0].value === 'false' ? 'true' : 'false') : 'true';
     if (current.length > 0) {
-      await sbUpdate('settings', current[0].id, { value: newValue });
+      const r = await fetch(`${REST}/settings?key=eq.posting_enabled`, { method: 'PATCH', headers: HEADERS, body: JSON.stringify({ value: newValue }) });
+      if (!r.ok) throw new Error(await r.text());
     } else {
       await sbInsert('settings', { key: 'posting_enabled', value: newValue });
     }
