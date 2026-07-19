@@ -7,7 +7,9 @@ import path from 'path';
 import https from 'https';
 import http from 'http';
 
-const BATCH_SIZE = 5;
+const BATCH_SIZE = 10;
+const DELAY_MIN_MS = 30000;
+const DELAY_MAX_MS = 60000;
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || '';
 const REST = `${SUPABASE_URL}/rest/v1`;
@@ -103,48 +105,65 @@ function downloadFile(url: string, destPath: string): Promise<void> {
 
 async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths: string[]): Promise<{ success: boolean; groupName: string; error?: string }> {
   try {
-    await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(3000);
-    const groupName = await page.title();
+    await page.goto(groupUrl, { waitUntil: 'networkidle', timeout: 60000 });
+    await page.waitForTimeout(4000);
+    let groupName = await page.title();
+    if (groupName === 'Facebook' || !groupName) groupName = groupUrl.split('/').pop() || groupUrl;
 
-    const composer = page.locator('div[role="textbox"]').first();
-    if (await composer.isVisible()) {
-      await composer.click();
-      await page.waitForTimeout(1000);
-      await composer.fill(text);
-    } else {
-      const pseudoComposer = page.locator('div[contenteditable="true"]').first();
-      if (await pseudoComposer.isVisible()) {
-        await pseudoComposer.click();
-        await page.waitForTimeout(1000);
-        await pseudoComposer.fill(text);
-      } else {
-        throw new Error('Could not find post composer');
-      }
+    const composerSelectors = [
+      'div[role="textbox"]',
+      'div[contenteditable="true"]',
+      'div[aria-label*="اكتب"]',
+      'div[aria-label*="منشور"]',
+      'form textarea',
+      'div[data-lexical-editor="true"]',
+    ];
+    let composer: any = null;
+    for (const sel of composerSelectors) {
+      const el = page.locator(sel).first();
+      if (await el.isVisible().catch(() => false)) { composer = el; break; }
     }
+    if (!composer) throw new Error('لم يتم العثور على صندوق الكتابة');
+    await composer.click();
+    await page.waitForTimeout(1000);
+    await composer.fill(text);
+    await page.waitForTimeout(500);
 
     if (mediaPaths.length) {
       for (const mediaPath of mediaPaths) {
-        const fileInput = page.locator('input[type="file"][accept*="image"], input[type="file"][accept*="video"]').first();
-        if (await fileInput.isVisible()) {
+        const fileInput = page.locator('input[type="file"]').first();
+        if (await fileInput.isVisible().catch(() => false)) {
           await fileInput.setInputFiles(mediaPath);
-          await page.waitForTimeout(3000);
+          await page.waitForTimeout(5000);
         }
       }
     }
 
-    await page.waitForTimeout(2000);
-
-    const postBtn = page.locator('div[aria-label="نشر"], div[aria-label*="Post"], div[role="button"]:has-text("نشر"), div[role="button"]:has-text("Post")').first();
-    if (await postBtn.isVisible()) {
-      await postBtn.click();
-      await page.waitForTimeout(3000);
-    } else {
-      const submitBtn = page.locator('button[type="submit"]').first();
-      if (await submitBtn.isVisible()) {
-        await submitBtn.click();
+    const postBtnSelectors = [
+      'div[aria-label="نشر"]',
+      'div[aria-label="Post"]',
+      'span[role="button"]:has-text("نشر")',
+      'span[role="button"]:has-text("Post")',
+      'div[role="button"]:has-text("نشر")',
+      'div[role="button"]:has-text("Post")',
+      'button[type="submit"]',
+    ];
+    let clicked = false;
+    for (const sel of postBtnSelectors) {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible().catch(() => false)) {
+        await btn.click();
         await page.waitForTimeout(3000);
+        clicked = true;
+        break;
       }
+    }
+    if (!clicked) throw new Error('لم يتم العثور على زر النشر');
+
+    await page.waitForTimeout(2000);
+    const currentUrl = page.url();
+    if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
+      throw new Error('الجلسة انتهت');
     }
 
     return { success: true, groupName };
@@ -154,7 +173,7 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
 }
 
 function randomDelay(): Promise<void> {
-  const ms = Math.floor(Math.random() * (300000 - 180000 + 1)) + 180000;
+  const ms = Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1)) + DELAY_MIN_MS;
   return new Promise(r => setTimeout(r, ms));
 }
 
@@ -193,6 +212,12 @@ async function main() {
   }
   console.log('✅ Facebook login OK');
   await page.close();
+
+  const runningTasks = await supaQuery('tasks', 'status=eq.running&order=created_at');
+  for (const rt of runningTasks) {
+    console.log(`🔄 Resetting stale running task ${rt.id} to pending`);
+    await supaUpdate('tasks', rt.id, { status: 'pending', locked_by: 'none' });
+  }
 
   const tasks = await supaQuery('tasks', 'status=eq.pending&order=created_at');
   console.log(`📋 Found ${tasks.length} pending tasks`);
