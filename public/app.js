@@ -71,12 +71,246 @@ function loadPage(name) {
   const el = $('#page-content');
   switch (name) {
     case 'compose': renderCompose(el); break;
+    case 'share': renderShare(el); break;
     case 'dashboard': renderDashboard(el); break;
     case 'groups': renderGroups(el); break;
     case 'tasks': renderTasks(el); break;
     case 'media': renderMedia(el); break;
     case 'logs': renderLogs(el); break;
     case 'settings': renderSettings(el); break;
+  }
+}
+
+// Share
+async function renderShare(el) {
+  uploadedFiles = [];
+  const groups = await sbQuery('groups', { order: 'name' });
+  const categories = {};
+  groups.forEach(g => {
+    const cat = g.category || 'غير مصنف';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push(g);
+  });
+  const catOrder = Object.keys(categories).sort((a, b) => {
+    if (a === 'غير مصنف') return 1;
+    if (b === 'غير مصنف') return -1;
+    return a.localeCompare(b, 'ar');
+  });
+
+  el.innerHTML = `
+    <h1>مشاركة رابط</h1>
+    <div class="card compose-box">
+      <textarea id="share-text" placeholder="اكتب نص المشاركة هنا..." rows="5"></textarea>
+      <div class="form-row">
+        <div style="flex:1;">
+          <label>رابط المشاركة (اختياري)</label>
+          <input id="share-link" type="url" placeholder="https://..." style="direction:ltr;text-align:left;">
+        </div>
+      </div>
+      <div id="share-preview" class="compose-preview"></div>
+      <div class="compose-actions">
+        <label class="btn btn-primary" style="cursor:pointer;">
+          📷 صورة / فيديو
+          <input type="file" id="share-files" multiple accept="image/*,video/*" style="display:none;" onchange="handleShareFileUpload(event)">
+        </label>
+        <span id="share-file-count" style="color:#888;font-size:13px;"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="compose-groups-header">
+        <h2>اختر المجموعات</h2>
+        <span id="share-selected-count" class="compose-selected-badge"></span>
+      </div>
+      <div class="compose-groups-toolbar">
+        <input type="text" id="share-search-groups" placeholder="بحث عن مجموعة..." style="margin-bottom:0;max-width:300px;" oninput="filterShareGroups(this.value)">
+        <div class="compose-groups-toolbar-btns">
+          <button class="btn btn-primary btn-sm" onclick="selectAllShareGroups()">تحديد الكل</button>
+          <button class="btn btn-danger btn-sm" onclick="deselectAllShareGroups()">إلغاء التحديد</button>
+        </div>
+      </div>
+      ${catOrder.map(cat => `
+        <div class="compose-category">
+          <div class="compose-category-header" onclick="toggleShareCategory(this)">
+            <input type="checkbox" class="cat-toggle" onchange="toggleShareCategoryCheck('${cat}', this.checked)" onclick="event.stopPropagation()">
+            <span class="compose-category-name">${cat}</span>
+            <span class="compose-category-count">${categories[cat].length}</span>
+            <span class="compose-category-arrow">▾</span>
+          </div>
+          <div class="compose-category-groups">
+            ${categories[cat].map(g => `
+              <label class="compose-group-item">
+                <input type="checkbox" class="share-group-checkbox" value="${g.id}" onchange="updateShareSelectedCount()">
+                <span class="compose-group-name">${g.name}</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <button id="share-submit" class="btn btn-primary" style="font-size:16px;padding:12px 32px;width:100%;" onclick="submitShare()">
+        مشاركة 🚀
+      </button>
+      <p style="color:#888;font-size:12px;text-align:center;margin-top:8px;">سيتم المشاركة في المجموعات المحددة بفاصل عشوائي 3-5 دقائق</p>
+    </div>
+    <div id="share-status" class="card" style="margin-top:16px;display:none;">
+      <h2>حالة المشاركة</h2>
+      <div id="share-status-content"></div>
+    </div>
+  `;
+}
+
+async function handleShareFileUpload(event) {
+  const files = Array.from(event.target.files);
+  const preview = $('#share-preview');
+  const countEl = $('#share-file-count');
+
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const isVideo = file.type.startsWith('video/');
+      const thumb = isVideo
+        ? `<div class="compose-thumb compose-thumb-video">🎬</div>`
+        : `<img src="${e.target.result}" class="compose-thumb">`;
+      const idx = uploadedFiles.length;
+      uploadedFiles.push({ file, name: file.name });
+      preview.innerHTML += `<div class="compose-thumb-wrap" id="share-thumb-${idx}">${thumb}<span class="compose-thumb-name">${file.name}</span><button class="compose-thumb-remove" onclick="removeShareFile(${idx})">&times;</button></div>`;
+    };
+    reader.readAsDataURL(file);
+  }
+  countEl.textContent = files.length ? `${uploadedFiles.length} ملف(ات) مرفوع(ة)` : '';
+  event.target.value = '';
+}
+
+function removeShareFile(idx) {
+  uploadedFiles[idx] = null;
+  const el = $(`#share-thumb-${idx}`);
+  if (el) el.remove();
+  const count = uploadedFiles.filter(f => f !== null).length;
+  $('#share-file-count').textContent = count ? `${count} ملف(ات) مرفوع(ة)` : '';
+}
+
+function selectAllShareGroups() {
+  $$('.share-group-checkbox').forEach(cb => cb.checked = true);
+  updateShareSelectedCount();
+}
+
+function deselectAllShareGroups() {
+  $$('.share-group-checkbox').forEach(cb => cb.checked = false);
+  updateShareSelectedCount();
+}
+
+function toggleShareCategory(header) {
+  const groups = header.nextElementSibling;
+  const arrow = header.querySelector('.compose-category-arrow');
+  const isOpen = groups.style.display !== 'none';
+  groups.style.display = isOpen ? 'none' : 'grid';
+  arrow.style.transform = isOpen ? 'rotate(-90deg)' : 'rotate(0deg)';
+}
+
+function toggleShareCategoryCheck(cat, checked) {
+  $$('.share-group-checkbox').forEach(cb => {
+    const category = cb.closest('.compose-category');
+    const categoryName = category ? category.querySelector('.compose-category-name') : null;
+    if (categoryName && categoryName.textContent.trim() === cat) {
+      cb.checked = checked;
+    }
+  });
+  updateShareSelectedCount();
+}
+
+function filterShareGroups(query) {
+  const q = query.toLowerCase();
+  $$('.compose-category').forEach(cat => {
+    const items = cat.querySelectorAll('.compose-group-item');
+    let visibleCount = 0;
+    items.forEach(item => {
+      const name = item.querySelector('.compose-group-name').textContent.toLowerCase();
+      const match = !q || name.includes(q);
+      item.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    });
+    cat.style.display = visibleCount ? '' : 'none';
+    const countEl = cat.querySelector('.compose-category-count');
+    if (countEl) countEl.textContent = visibleCount;
+  });
+}
+
+function updateShareSelectedCount() {
+  const count = $$('.share-group-checkbox:checked').length;
+  const el = $('#share-selected-count');
+  if (!el) return;
+  if (count) {
+    el.textContent = `${count} مجموعة محددة`;
+    el.classList.add('visible');
+  } else {
+    el.classList.remove('visible');
+  }
+}
+
+async function submitShare() {
+  const text = $('#share-text').value.trim();
+  const link = $('#share-link').value.trim();
+  if (!text && !link) return alert('اكتب نص المشاركة أو أضف رابطاً');
+
+  const selectedGroups = Array.from($$('.share-group-checkbox:checked')).map(cb => cb.value);
+  if (!selectedGroups.length) return alert('اختر مجموعة واحدة على الأقل');
+
+  const btn = $('#share-submit');
+  btn.disabled = true;
+  btn.textContent = 'جاري الرفع...';
+
+  try {
+    const mediaPaths = [];
+    const filesToUpload = uploadedFiles.filter(f => f !== null);
+
+    for (let i = 0; i < filesToUpload.length; i++) {
+      const file = filesToUpload[i].file;
+      const ext = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${i}.${ext}`;
+      btn.textContent = `جاري رفع ${file.name}... 0%`;
+      const publicUrl = await sbUpload(fileName, file, (pct) => {
+        btn.textContent = `جاري رفع ${file.name}... ${pct}%`;
+      });
+      btn.textContent = `تم رفع ${file.name} ✅`;
+      mediaPaths.push(publicUrl);
+    }
+
+    btn.textContent = 'جاري إنشاء المهمة...';
+
+    const shareContent = link ? `${text}\n\n${link}` : text;
+
+    const { error } = await sbInsert('tasks', {
+      id: uuid(),
+      type: 'share',
+      status: 'pending',
+      group_ids: selectedGroups,
+      text_content: shareContent,
+      media_paths: mediaPaths,
+      max_retries: 3
+    });
+
+    if (error) throw new Error(error.message || error);
+
+    btn.textContent = 'تمت المشاركة! ✅';
+    btn.style.background = '#27ae60';
+
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = 'مشاركة 🚀';
+      btn.style.background = '';
+      uploadedFiles = [];
+      $('#share-preview').innerHTML = '';
+      $('#share-text').value = '';
+      $('#share-link').value = '';
+      deselectAllShareGroups();
+      $('#share-file-count').textContent = '';
+    }, 3000);
+
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'مشاركة 🚀';
+    alert('خطأ: ' + e.message);
   }
 }
 
