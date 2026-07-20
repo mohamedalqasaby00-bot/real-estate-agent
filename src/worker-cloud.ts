@@ -186,29 +186,20 @@ async function findGroupPostComposer(page: any): Promise<{ found: boolean; selec
 
 async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths: string[]): Promise<{ success: boolean; groupName: string; error?: string }> {
   const MAX_ATTEMPTS = 3;
-  const REJECT_DIALOG_MARKERS = [
+  const COMMENT_DIALOG_MARKERS = [
     'Write a comment',
     'اكتب تعليقاً',
     'اكتب تعليق',
     'Comment as',
     'Post as',
-    'Edit post',
-    'تحرير منشور',
-    'تحرير',
-    'Edit',
-    'Update post',
-    'تحديث',
   ];
   const POST_DIALOG_MARKERS = [
     'Post to',
     'Create post',
-    'Create a post',
     'Public',
     'نشر في',
     'منشور',
     'الجمهور',
-    'Create',
-    'أنشاء منشور',
   ];
 
   try {
@@ -286,12 +277,12 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       const dialogText = await dialog.innerText().catch(() => '');
       console.log(`  📝 Dialog text preview: ${dialogText.slice(0, 200).replace(/\n/g, ' ')}`);
 
-      const isRejected = REJECT_DIALOG_MARKERS.some(m => dialogText.includes(m));
+      const isComment = COMMENT_DIALOG_MARKERS.some(m => dialogText.includes(m));
       const isPost = POST_DIALOG_MARKERS.some(m => dialogText.includes(m));
-      console.log(`  🔎 isRejected=${isRejected} isPost=${isPost}`);
+      console.log(`  🔎 isComment=${isComment} isPost=${isPost}`);
 
-      if (isRejected && !isPost) {
-        console.log('  🚫 Comment/Edit dialog detected — closing');
+      if (isComment && !isPost) {
+        console.log('  🚫 Comment dialog detected — closing');
         await closeDialogs();
         await page.waitForTimeout(1000);
         isCommentDialog = true;
@@ -299,20 +290,19 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       }
 
       const postBtnInDialog = await (async () => {
-        const btns = dialog.locator('[role="button"]');
+        const btns = dialog.locator('[role="button"], [aria-label]');
         const count = await btns.count();
         for (let i = 0; i < count; i++) {
           const txt = (await btns.nth(i).innerText().catch(() => '')).trim();
           if (['Post', 'نشر', 'Share', 'مشاركة'].includes(txt)) {
-            const disabled = await btns.nth(i).getAttribute('aria-disabled').catch(() => null);
-            if (disabled !== 'true') return true;
+            return true;
           }
         }
         return false;
       })();
 
       if (!postBtnInDialog) {
-        console.log('  🚫 No enabled "Post" button found in dialog — likely wrong dialog');
+        console.log('  🚫 No "Post" button found in dialog — likely wrong dialog');
         await closeDialogs();
         await page.waitForTimeout(1000);
         continue;
@@ -329,15 +319,6 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     }
 
     const dialog = page.locator('[role="dialog"]').last();
-
-    // Verify this is a Create Post dialog by checking header
-    const h2Text = await dialog.locator('h2, h3, [role="heading"]').first().innerText().catch(() => '');
-    console.log(`  📝 Dialog header: "${h2Text}"`);
-    const createPostHeaders = ['Create post', 'Create a post', 'إنشاء منشور', 'Post to', 'نشر في'];
-    const isCreateHeader = createPostHeaders.some(h => h2Text.includes(h));
-    if (!isCreateHeader) {
-      console.log('  ⚠️ Dialog header is not "Create post" — proceeding anyway');
-    }
 
     await screenshotDebug(page, 'post-dialog-open');
 

@@ -4,7 +4,7 @@ import path from 'path';
 import { config } from '../config/index.js';
 
 async function exportCookies() {
-  console.log('🔄 Opening fresh browser for new Facebook account...');
+  console.log('🔄 فتح متصفح جديد...');
 
   const browser = await chromium.launch({
     headless: false,
@@ -20,21 +20,31 @@ async function exportCookies() {
   const page = await context.newPage();
   await page.goto('https://www.facebook.com', { waitUntil: 'networkidle', timeout: 60000 });
 
-  console.log('📋 سجل دخول بالاكونت الجديد في المتصفح...');
+  console.log('\n📋 المتصفح اتفتح قدامك — سجل دخول في فيسبوك');
+  console.log('⏳ مستني تسجل دخول (أقصى 5 دقايق)...');
 
-  console.log('⏳ مستني تسجل الدخول... (حد أقصى 5 دقايق)');
-  try {
-    await page.waitForURL('https://www.facebook.com/?', { timeout: 300000 });
-  } catch {
-    const currentUrl = page.url();
-    if (!currentUrl.includes('login') && !currentUrl.includes('checkpoint')) {
-      console.log('✅ يبدو إنك سجلت دخول!');
-    } else {
-      console.log('⚠️ Timeout - but saving whatever session exists...');
+  let loggedIn = false;
+  const startTime = Date.now();
+  while (Date.now() - startTime < 300000) {
+    const cookies = await context.cookies();
+    const hasCUser = cookies.some(c => c.name === 'c_user' && c.value.length > 0);
+    const hasXs = cookies.some(c => c.name === 'xs' && c.value.length > 0);
+    if (hasCUser && hasXs) {
+      loggedIn = true;
+      break;
     }
+    await new Promise(r => setTimeout(r, 1000));
   }
 
-  console.log('✅ جاري حفظ الكوكيز...');
+  if (!loggedIn) {
+    console.error('❌ لم يتم تسجيل الدخول');
+    await browser.close();
+    process.exit(1);
+  }
+
+  console.log('✅ تم تسجيل الدخول');
+  console.log('💾 جاري حفظ الكوكيز...');
+  await page.waitForTimeout(2000);
 
   const storageState = await context.storageState();
 
@@ -43,8 +53,13 @@ async function exportCookies() {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(cookiesPath, JSON.stringify(storageState, null, 2));
 
-  console.log(`✅ تم حفظ الكوكيز في ${cookiesPath}`);
+  const hasCUser = storageState.cookies.some((c: any) => c.name === 'c_user');
+  const hasXs = storageState.cookies.some((c: any) => c.name === 'xs');
+  const hasFr = storageState.cookies.some((c: any) => c.name === 'fr');
+
+  console.log(`\n✅ تم الحفظ في ${cookiesPath}`);
   console.log(`   عدد الكوكيز: ${storageState.cookies.length}`);
+  console.log(`   c_user: ${hasCUser ? '✅' : '❌'} | xs: ${hasXs ? '✅' : '❌'} | fr: ${hasFr ? '✅' : '❌'}`);
 
   await browser.close();
   process.exit(0);
