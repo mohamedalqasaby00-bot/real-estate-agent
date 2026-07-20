@@ -104,13 +104,20 @@ function downloadFile(url: string, destPath: string): Promise<void> {
 }
 
 async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths: string[]): Promise<{ success: boolean; groupName: string; error?: string }> {
+  const MAX_ATTEMPTS = 3;
+  const COMMENT_KEYWORDS = ['Write a comment', 'Comment', 'Reply', 'تعليق', 'رد', 'اكتب تعليق'];
+
   try {
+    console.log('  🌐 Opening group');
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(5000);
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+
     const currentUrl = page.url();
     if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
       throw new Error('Session expired');
     }
+
     let groupName = await page.title();
     if (groupName === 'Facebook' || !groupName) groupName = groupUrl.split('/').pop() || groupUrl;
 
@@ -119,6 +126,7 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
       throw new Error('Membership pending');
     }
 
+    // Close any open dialogs first
     for (const sel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]']) {
       const btn = page.locator(sel).first();
       if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -131,79 +139,125 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     await page.waitForTimeout(1000);
 
     let dialogOpened = false;
-    const allWriteEls = await page.locator('[aria-label="Write something..."], [aria-label="اكتب ماذا يدور في خاطرك..."]').all();
-    console.log(`  🔍 Found ${allWriteEls.length} "Write something" elements`);
+    let isCommentDialog = false;
 
-    for (let i = 0; i < allWriteEls.length; i++) {
-      const el = allWriteEls[i];
-      if (!await el.isVisible().catch(() => false)) continue;
-      const box = await el.boundingBox().catch(() => null);
-      if (!box || box.y > 600) {
-        console.log(`  ⏭️ Skipping element ${i} (y=${box?.y}) - too far down`);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      console.log(`  🔍 Attempt ${attempt + 1}/${MAX_ATTEMPTS}: Looking for group post composer`);
+
+      // Only search for the "Create Post" button near the top of the group page
+      const composerSelectors = [
+        'div[role="button"][aria-label*="Write something"]',
+        'div[role="button"][aria-label*="Create a public post"]',
+        'div[role="button"][aria-label*="اكتب"]',
+        'div[role="button"][aria-label*="منشور"]',
+        'div[role="button"][aria-label*="Create"]',
+        'span[role="button"][aria-label*="Write something"]',
+        'span[role="button"][aria-label*="Create a public post"]',
+        'span[role="button"][aria-label*="اكتب"]',
+        'span[role="button"][aria-label*="منشور"]',
+        'span[role="button"][aria-label*="Create"]',
+      ];
+
+      let composerClicked = false;
+      for (const sel of composerSelectors) {
+        const els = await page.locator(sel).all();
+        for (const el of els) {
+          if (!await el.isVisible().catch(() => false)) continue;
+          const box = await el.boundingBox().catch(() => null);
+          if (!box || box.y > 600) continue;
+
+          console.log(`  ✅ Group composer found: ${sel}`);
+          await el.click();
+          await page.waitForTimeout(3000);
+
+          const dialogCheck = await page.locator('[role="dialog"]').last().isVisible({ timeout: 3000 }).catch(() => false);
+          if (dialogCheck) {
+            dialogOpened = true;
+            composerClicked = true;
+            break;
+          }
+        }
+        if (composerClicked) break;
+      }
+
+      if (!dialogOpened) {
+        // Fallback: try text-based selectors for the composer area
+        const fallbackEls = await page.locator('span').filter({ hasText: /^(Write something|اكتبSomething|Create a post|اكتب منشور)/ }).all();
+        for (const el of fallbackEls) {
+          if (!await el.isVisible().catch(() => false)) continue;
+          const box = await el.boundingBox().catch(() => null);
+          if (!box || box.y > 600) continue;
+
+          console.log('  ✅ Group composer found via text fallback');
+          await el.click();
+          await page.waitForTimeout(3000);
+          dialogOpened = await page.locator('[role="dialog"]').last().isVisible({ timeout: 3000 }).catch(() => false);
+          if (dialogOpened) break;
+        }
+      }
+
+      if (!dialogOpened) {
+        console.log(`  ⚠️ Attempt ${attempt + 1}: No composer found`);
         continue;
       }
 
-      console.log(`  🖱️ Clicking "Write something" element ${i} at y=${box.y}`);
-      await el.click();
-      await page.waitForTimeout(3000);
+      // Check if this is a comment dialog
+      const dialog = page.locator('[role="dialog"]').last();
+      const dialogText = await dialog.innerText().catch(() => '');
+      console.log(`  📝 Post dialog opened: ${dialogText.slice(0, 150)}`);
 
-      const dialogCheck = await page.locator('div[role="dialog"]').first().isVisible({ timeout: 2000 }).catch(() => false);
-      if (dialogCheck) {
-        const dText = await page.locator('div[role="dialog"]').first().innerText().catch(() => '');
-        if (dText.includes('Post to') || dText.includes('Create') || dText.includes('public') || dText.includes('نشر') || dText.includes('Write something')) {
-          dialogOpened = true;
-          console.log(`  ✅ Create Post dialog opened from element ${i}`);
-          break;
+      isCommentDialog = COMMENT_KEYWORDS.some(kw => dialogText.toLowerCase().includes(kw.toLowerCase()));
+
+      if (isCommentDialog) {
+        console.log('  🚫 Comment dialog detected — closing and retrying');
+        const closeBtn = dialog.locator('[aria-label="Close"]').first();
+        if (await closeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await closeBtn.click().catch(() => {});
+          await page.waitForTimeout(1000);
+        } else {
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(1000);
         }
+        dialogOpened = false;
+        isCommentDialog = false;
+        continue;
       }
 
-      console.log(`  ❌ Element ${i} did not open Create Post dialog, closing...`);
-      for (const closeSel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]']) {
-        const cBtn = page.locator(closeSel).first();
-        if (await cBtn.isVisible({ timeout: 500 }).catch(() => false)) {
-          await cBtn.click().catch(() => {});
-          await page.waitForTimeout(500);
-        }
-      }
-      await page.waitForTimeout(500);
+      break;
     }
 
-    if (!dialogOpened) {
-      const fallbackEls = await page.locator('span').filter({ hasText: 'Write something' }).all();
-      for (let i = 0; i < fallbackEls.length; i++) {
-        const box = await fallbackEls[i].boundingBox().catch(() => null);
-        if (!box || box.y > 600) continue;
-        await fallbackEls[i].click();
-        await page.waitForTimeout(3000);
-        const dialogCheck = await page.locator('div[role="dialog"]').first().isVisible({ timeout: 2000 }).catch(() => false);
-        if (dialogCheck) {
-          dialogOpened = true;
-          break;
-        }
-        for (const closeSel of ['div[role="dialog"] div[aria-label="Close"]', 'div[aria-label="Close"]']) {
-          const cBtn = page.locator(closeSel).first();
-          if (await cBtn.isVisible({ timeout: 500 }).catch(() => false)) {
-            await cBtn.click().catch(() => {});
-            await page.waitForTimeout(500);
-          }
-        }
+    if (!dialogOpened || isCommentDialog) {
+      throw new Error('Could not open Create Post dialog after 3 attempts');
+    }
+
+    const dialog = page.locator('[role="dialog"]').last();
+
+    // Verify the dialog has a Post button (not Comment/Reply)
+    const dialogBtns = dialog.locator('[role="button"]');
+    const btnCount = await dialogBtns.count();
+    let hasPostButton = false;
+    for (let i = 0; i < btnCount; i++) {
+      const btnText = (await dialogBtns.nth(i).innerText().catch(() => '')).trim();
+      if (btnText === 'Post' || btnText === 'نشر' || btnText === 'Share' || btnText === 'مشاركة') {
+        hasPostButton = true;
+        break;
       }
     }
 
-    if (!dialogOpened) throw new Error('Could not open Create Post dialog');
+    if (!hasPostButton) {
+      throw new Error('Dialog does not have a Post button — likely a comment dialog');
+    }
 
-    const dialog = page.locator('div[role="dialog"]').first();
-    const dialogTitle = await dialog.innerText().catch(() => '');
-    console.log(`  📸 Dialog: ${dialogTitle.slice(0, 150)}`);
-
+    // Find the text editor inside dialog
     let editor: any = null;
     const editorSelectors = [
-      'div[role="dialog"] div[data-lexical-editor="true"]',
-      'div[role="dialog"] div[contenteditable="true"][role="textbox"]',
-      'div[role="dialog"] div[contenteditable="true"]',
+      '[contenteditable="true"]',
+      '[data-lexical-editor="true"]',
+      '[contenteditable="true"][role="textbox"]',
     ];
+
     for (const sel of editorSelectors) {
-      const el = page.locator(sel).first();
+      const el = dialog.locator(sel).first();
       if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
         editor = el;
         break;
@@ -211,55 +265,90 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
     }
 
     if (!editor) {
-      console.log(`  📸 Dialog text: ${dialogText.slice(0, 300)}`);
       throw new Error('Could not find text editor in dialog');
     }
 
+    console.log('  ✍️ Typing post');
     await editor.click();
     await page.waitForTimeout(500);
     await page.keyboard.type(text, { delay: 20 });
     await page.waitForTimeout(1500);
 
+    // Upload media if any
     if (mediaPaths.length) {
       for (const mediaPath of mediaPaths) {
-        const fileInput = page.locator('div[role="dialog"] input[type="file"]').first();
+        const fileInput = dialog.locator('input[type="file"]').first();
         if (await fileInput.count()) {
           await fileInput.setInputFiles(mediaPath);
         } else {
-          await page.locator('input[type="file"]').first().setInputFiles(mediaPath);
+          const globalFileInput = page.locator('input[type="file"]').first();
+          if (await globalFileInput.count()) {
+            await globalFileInput.setInputFiles(mediaPath);
+          }
         }
         await page.waitForTimeout(5000);
       }
     }
 
+    // Find the Post button inside the dialog
     let postBtn: any = null;
-    const allBtns = page.locator('div[role="dialog"] div[role="button"], div[role="dialog"] span[role="button"]');
-    const btnCount = await allBtns.count();
     for (let i = 0; i < btnCount; i++) {
-      const btnText = (await allBtns.nth(i).innerText().catch(() => '')).trim();
-      if (btnText === 'Post' || btnText === 'نشر' || btnText === 'Share') {
-        const disabled = await allBtns.nth(i).getAttribute('aria-disabled').catch(() => null);
+      const btnText = (await dialogBtns.nth(i).innerText().catch(() => '')).trim();
+      if (btnText === 'Post' || btnText === 'نشر' || btnText === 'Share' || btnText === 'مشاركة') {
+        const disabled = await dialogBtns.nth(i).getAttribute('aria-disabled').catch(() => null);
         if (disabled !== 'true') {
-          postBtn = allBtns.nth(i);
+          postBtn = dialogBtns.nth(i);
           break;
         }
       }
     }
 
-    if (!postBtn) throw new Error('Could not find Post button');
+    if (!postBtn) {
+      // Wait up to 10 seconds for the Post button to become enabled
+      console.log('  ⏳ Waiting for Post button to become enabled...');
+      for (let w = 0; w < 10; w++) {
+        await page.waitForTimeout(1000);
+        const refreshedBtns = dialog.locator('[role="button"]');
+        const rc = await refreshedBtns.count();
+        for (let i = 0; i < rc; i++) {
+          const btnText = (await refreshedBtns.nth(i).innerText().catch(() => '')).trim();
+          if (btnText === 'Post' || btnText === 'نشر' || btnText === 'Share' || btnText === 'مشاركة') {
+            const disabled = await refreshedBtns.nth(i).getAttribute('aria-disabled').catch(() => null);
+            if (disabled !== 'true') {
+              postBtn = refreshedBtns.nth(i);
+              break;
+            }
+          }
+        }
+        if (postBtn) break;
+      }
+    }
 
-    const textBeforePost = await editor.innerText().catch(() => '');
+    if (!postBtn) {
+      throw new Error('Could not find enabled Post button in dialog');
+    }
+
+    console.log('  🖱️ Clicking Post');
     await postBtn.click();
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(3000);
 
-    const dialogAfter = await dialog.isVisible({ timeout: 5000 }).catch(() => false);
-    if (dialogAfter) {
-      const editorAfter = await page.locator('div[role="dialog"] div[data-lexical-editor="true"]').first().innerText().catch(() => '');
+    // Wait until dialog disappears
+    console.log('  ⏳ Waiting for dialog to close...');
+    for (let w = 0; w < 10; w++) {
+      const stillOpen = await dialog.isVisible({ timeout: 2000 }).catch(() => false);
+      if (!stillOpen) break;
+      await page.waitForTimeout(1000);
+    }
+
+    const dialogStillOpen = await dialog.isVisible({ timeout: 2000 }).catch(() => false);
+    if (dialogStillOpen) {
+      const editorAfter = await dialog.locator('[contenteditable="true"]').first().innerText().catch(() => '');
       if (editorAfter.includes(text.slice(0, 15))) {
         throw new Error('Post did not publish - dialog still open with text');
       }
     }
 
+    console.log('  ✅ Post published');
     return { success: true, groupName };
   } catch (err: any) {
     return { success: false, groupName: groupUrl, error: err.message };
