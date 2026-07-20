@@ -443,6 +443,71 @@ async function postToGroup(page: any, groupUrl: string, text: string, mediaPaths
   }
 }
 
+async function shareToGroup(page: any, postUrl: string, groupName: string, groupUrl: string): Promise<{ success: boolean; groupName: string; error?: string }> {
+  try {
+    console.log(`  🌐 Opening post: ${postUrl}`);
+    await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+
+    const currentUrl = page.url();
+    if (currentUrl.includes('login') || currentUrl.includes('checkpoint')) throw new Error('Session expired');
+
+    console.log('  🔍 Looking for Share button');
+    const shareBtn = page.locator('[role="button"]').filter({ hasText: /Share|مشاركة/i }).first();
+    if (!await shareBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      throw new Error('Share button not found');
+    }
+    await shareBtn.click();
+    await page.waitForTimeout(2000);
+
+    console.log('  🔍 Looking for "Share to a group" option');
+    const shareToGroupBtn = page.locator('[role="menuitem"], [role="button"]').filter({ hasText: /Share to a group|مشاركة مع مجموعة/i }).first();
+    if (!await shareToGroupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // Try alternative: click the share again or find the group share option
+      const altShare = page.locator('[role="menuitem"]').filter({ hasText: /Group|مجموعة/i }).first();
+      if (!await altShare.isVisible({ timeout: 2000 }).catch(() => false)) {
+        throw new Error('Share to group option not found');
+      }
+      await altShare.click();
+    } else {
+      await shareToGroupBtn.click();
+    }
+    await page.waitForTimeout(2000);
+
+    console.log(`  🔍 Searching for group: ${groupName}`);
+    const searchInput = page.locator('input[type="search"], input[placeholder*="group" i], input[placeholder*="مجموعة"]').first();
+    if (!await searchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+      throw new Error('Group search input not found in share dialog');
+    }
+    await searchInput.click();
+    await page.waitForTimeout(300);
+    await searchInput.fill(groupName);
+    await page.waitForTimeout(2000);
+
+    const groupOption = page.locator('[role="option"], [role="button"]').filter({ hasText: groupName }).first();
+    if (!await groupOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+      throw new Error(`Group "${groupName}" not found in search results`);
+    }
+    await groupOption.click();
+    await page.waitForTimeout(1500);
+
+    console.log('  🔍 Clicking Post/Share button');
+    const postBtn = page.locator('[role="button"]').filter({ hasText: /Post|Share|نشر|مشاركة/i }).last();
+    if (!await postBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      throw new Error('Post button not found in share dialog');
+    }
+    await postBtn.click();
+    await page.waitForTimeout(3000);
+
+    console.log('  ✅ Post shared to group');
+    return { success: true, groupName };
+  } catch (err: any) {
+    console.log(`  ❌ Share error: ${err.message}`);
+    return { success: false, groupName: groupUrl || groupName, error: err.message };
+  }
+}
+
 function randomDelay(): Promise<void> {
   const ms = Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1)) + DELAY_MIN_MS;
   return new Promise(r => setTimeout(r, ms));
@@ -567,8 +632,11 @@ async function main() {
       continue;
     }
 
-    console.log(`[${doneGroupIds.size + i + 1}/${groupIds.length}] Posting to: ${group.name}`);
-    const result = await postToGroup(postPage, group.url, task.text_content, localMediaPaths);
+    const isShare = task.type === 'share';
+    console.log(`[${doneGroupIds.size + i + 1}/${groupIds.length}] ${isShare ? 'Sharing to' : 'Posting to'}: ${group.name}`);
+    const result = isShare
+      ? await shareToGroup(postPage, task.text_content, group.name, group.url)
+      : await postToGroup(postPage, group.url, task.text_content, localMediaPaths);
 
     await supaInsert('history', {
       id: crypto.randomUUID(),
